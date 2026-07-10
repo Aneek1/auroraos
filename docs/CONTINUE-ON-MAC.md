@@ -48,7 +48,7 @@ Full detail in `docs/build-host-utm.md`. Short version:
 ```bash
 bash scripts/00-check-host.sh          # ~1 min — expect "Host OK"
 bash scripts/01-prepare-disk.sh        # wipes /dev/vdb, mounts $LFS
-bash scripts/02-download-sources.sh    # ~15 min — all mirror fixes are in main
+bash scripts/02-download-sources.sh    # ~20 min — now also pulls the ~0.8 GB Aura LLM model (GGUF)
 bash scripts/03-toolchain-pass1.sh     # native ~1 h (was ~2 h emulated)
 bash scripts/04-temp-tools.sh          # native ~1 h
 sudo bash scripts/05-enter-chroot.sh   # drops you INTO the chroot
@@ -61,7 +61,7 @@ Then **inside the chroot**, run in order (05 prints this list too):
 /aurora/scripts/07-system-config.sh
 /aurora/scripts/08-kernel.sh           # vanilla 6.13.4, Apple+VM-trimmed config
 /aurora/scripts/09-bootloader.sh       # grub arm64-efi
-/aurora/scripts/10-aurora-shell.sh     # wayland kiosk + firefox + shell (1–3 h)
+/aurora/scripts/10-aurora-shell.sh     # wayland kiosk + firefox + shell + builds llama-server (1–3 h)
 exit                                    # leave chroot
 bash scripts/11-make-iso.sh            # optional live ISO
 scripts/99-smoke-qemu.sh auroraos-1.0.iso   # boot it
@@ -99,7 +99,33 @@ triple, glibc, C++ headers) is the part that's proven. 05–10 are mostly
 arch-neutral autotools packages plus the already-reviewed arch-aware bits
 (kernel image path, grub target).
 
-## 5. Bare metal (M4 SPTM) — later, not now
+## 5. Aura on-device LLM (built 2026-07-10)
+
+Aura (the assistant) now runs a real on-device model — **Llama-3.2-1B-Instruct**
+(Q4, ~0.8 GB, bundled) via **llama.cpp**, behind aurorad's `/ask`. The model
+proposes tool-calls into a fixed registry; deterministic Python validates and
+executes them (whitelist-guarded, `power` never exposed, heuristic fallback if
+the model is down). Design: `docs/superpowers/specs/2026-07-10-aura-local-llm-design.md`.
+
+- **Pure-Python core is fully tested on any machine** (no model/ARM needed):
+  `python3 -m pytest tests/ -v` → 31 tests. Run this on the Mac first to confirm
+  the checkout is sound before the long build.
+- Script 02 downloads the GGUF into `$LFS/opt/aura/models/` (GGUF-magic +
+  size checked). Script 10 builds `llama-server` and installs two systemd units:
+  `aura-llm.service` (runs the model as user `aurora` on 127.0.0.1:8080) and the
+  updated `aurorad.service` (runs as **root** — needs backlight/systemctl — with
+  `Wants=aura-llm.service`).
+- On the running system, Aura gives smart replies only while `aura-llm.service`
+  is up; otherwise `/ask` falls back to the deterministic heuristics and still
+  works. UI actions ("open files", "tile for coding") are driven from the reply
+  via `window.Aura.exec` in the shell.
+- **Externals not yet fetch-verified from here:** llama.cpp tag `b4589` and the
+  Hugging Face GGUF URL (`bartowski/Llama-3.2-1B-Instruct-GGUF`). If either 404s,
+  bump the tag / find the current GGUF and update `config/extras.list` +
+  `scripts/02-download-sources.sh`. The arm64 compile of llama.cpp was proven in
+  the container (see project memory).
+
+## 6. Bare metal (M4 SPTM) — later, not now
 
 This VM build is **workstream A**. Bare-metal M4 (m1n1 / t8132) is workstream B,
 gated on upstream Asahi solving the M4 **SPTM** problem: SPTM runs at GL2 and
