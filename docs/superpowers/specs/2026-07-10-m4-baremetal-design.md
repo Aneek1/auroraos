@@ -30,6 +30,10 @@ SecureROM → iBoot1 → iBoot2 (Aurora stub volume, Permissive Security)
 - m1n1 is installed as the volume's kernel object via `kmutil configure-boot`. m1n1 parses Apple's device tree (ADT) at runtime, so much of it is SoC-generic; the t8132 port work is CPU bring-up, AIC (interrupt controller) changes, and memory-map deltas.
 - m1n1 chainloads Linux directly (or via U-Boot later, for a boot menu) with a flattened device tree we author (`t8132.dtsi` + `t8132-j61x.dts` board files).
 
+**SPTM — the M4-specific wall (added 2026-07-10).** M4 introduces the Secure Page Table Monitor, running at GL2 (above the hypervisor). This **invalidates rung 2's method**: on M1/M2 the Asahi team reverse-engineered hardware by running macOS *under* m1n1's hypervisor and tracing every MMIO access — SPTM blocks that. Consequence: WS-B's timeline is **upstream-gated, not effort-gated**. Bare-metal M4 waits on the Asahi project settling a new RE methodology (static analysis of XNU / DriverKit binaries, AI-assisted disassembly to map undocumented registers — useful but not a substitute for hands-on RE); we rebase onto it rather than crack SPTM ourselves. This is the concrete reason WS-A (the VM track) is the value-delivering path and WS-B is explicitly research-grade with no committed date.
+
+**16 KB pages — a non-issue for the rootfs (verified 2026-07-10).** Apple Silicon kernels use 16 KB pages. This is a *kernel* config (`CONFIG_ARM64_16K_PAGES`), applied in WS-B. It is **not** a toolchain/glibc concern: aarch64 userland is page-size-agnostic — GNU ld defaults `MAXPAGESIZE` to 64 KB, so segments align to 64 KB and the same binaries run on 4 KB, 16 KB, or 64 KB kernels; glibc reads the page size at runtime. Confirmed by `readelf` on a binary built by our toolchain (LOAD align = 0x10000). The WS-A rootfs built on a 4 KB host runs unchanged on a 16 KB Apple kernel.
+
 ### Two parallel workstreams
 
 **WS-A — aarch64 AuroraOS rootfs (independent, ships early).**
