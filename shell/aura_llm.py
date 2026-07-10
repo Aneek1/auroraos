@@ -26,19 +26,37 @@ def build_prompt(tools, user_text):
     )
     return system, user_text
 
+def _json_candidates(text):
+    """Yield each top-level {...} substring via a brace-depth scan, so multiple
+    JSON objects in the text are tried independently (not greedily merged).
+    String-literal edge cases (braces inside strings) are acceptable to ignore for v1."""
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                yield text[start:i + 1]
+                start = -1
+
 def parse_model_output(text):
     """Return {'reply': str, 'tool_calls': [{'cmd','args'}]}. Never raises."""
     text = (text or "").strip()
-    for m in re.finditer(r"\{.*\}", text, re.DOTALL):
+    for candidate in _json_candidates(text):
         try:
-            obj = json.loads(m.group(0))
+            obj = json.loads(candidate)
         except (ValueError, TypeError):
             continue
         if isinstance(obj, dict) and "tool_calls" in obj:
             calls = obj.get("tool_calls") or []
             if not isinstance(calls, list):
                 calls = []
-            clean = [{"cmd": c.get("cmd"), "args": c.get("args") or {}}
+            clean = [{"cmd": c.get("cmd"),
+                      "args": c.get("args") if isinstance(c.get("args"), dict) else {}}
                      for c in calls if isinstance(c, dict) and c.get("cmd")]
             return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
     return {"reply": text, "tool_calls": []}
@@ -47,13 +65,20 @@ def _tool_index(tools):
     return {t["name"]: t for t in tools}
 
 def validate_call(call, tools):
-    """True only if cmd is a registry tool and every arg key is declared."""
+    """True only if cmd is a registry tool and every arg key is declared.
+    NOTE: this validates arg *keys* only. Executors MUST sanitize arg *values*
+    (the registry's "integer 0-100" prose is descriptive, not enforced here)."""
     idx = _tool_index(tools)
     spec = idx.get(call.get("cmd"))
     if not spec:
         return False
+    args = call.get("args")
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        return False
     allowed = set(spec["args"].keys())
-    return all(k in allowed for k in (call.get("args") or {}))
+    return all(k in allowed for k in args)
 
 def route(calls, tools, executors):
     """Execute system-side tools now; mark UI-side tools for the browser.
@@ -67,10 +92,16 @@ def route(calls, tools, executors):
         args = call.get("args") or {}
         if spec["side"] == "system":
             fn = executors.get(call["cmd"])
-            note = fn(args) if fn else None
-            if note:
-                notes.append(note)
-            actions.append({"cmd": call["cmd"], "args": args, "ran": True})
+            ran = False
+            if fn:
+                try:
+                    note = fn(args)
+                    ran = True
+                    if note:
+                        notes.append(note)
+                except Exception:
+                    notes.append("Couldn't complete that action.")
+            actions.append({"cmd": call["cmd"], "args": args, "ran": ran})
         else:
             actions.append({"cmd": call["cmd"], "args": args, "ran": False})
     return actions, notes
@@ -105,7 +136,9 @@ def call_llama(system, user):
         with urllib.request.urlopen(req, timeout=LLAMA_TIMEOUT) as r:
             data = json.loads(r.read())
         return data["choices"][0]["message"]["content"]
-    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError):
+    except Exception:
+        # Contract: return content or None on ANY failure (URLError, OSError,
+        # IncompleteRead/HTTPException, non-dict JSON -> TypeError, missing keys, etc.).
         return None
 
 def ask(user_text, executors=None, status=None, tools=None):

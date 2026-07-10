@@ -132,3 +132,39 @@ def test_ask_falls_back_on_garbage(monkeypatch):
     out = aura_llm.ask("hello", executors={}, status={})
     assert out["actions"] == []
     assert out["a"]  # non-empty prose (the model's own text)
+
+def test_route_system_tool_without_executor_is_not_ran():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route([{"cmd": "system_status", "args": {}}], tools, {})
+    assert actions == [{"cmd": "system_status", "args": {}, "ran": False}]
+
+def test_route_executor_exception_is_guarded():
+    tools = aura_llm.load_tools()
+    def boom(a): raise RuntimeError("hardware fault")
+    actions, notes = aura_llm.route(
+        [{"cmd": "set_brightness", "args": {"percent": 40}}], tools, {"set_brightness": boom})
+    assert actions[0]["ran"] is False
+    assert notes  # a short error note was recorded
+
+def test_validate_rejects_non_dict_args():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "set_brightness", "args": ["percent"]}, tools)
+
+def test_parse_non_dict_args_coerced_to_empty():
+    out = '{"reply":"x","tool_calls":[{"cmd":"set_brightness","args":["percent"]}]}'
+    r = aura_llm.parse_model_output(out)
+    assert r["tool_calls"] == [{"cmd": "set_brightness", "args": {}}]
+
+def test_parse_tool_call_object_followed_by_more_json():
+    out = '{"reply":"On it.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]} then {"x":1}'
+    r = aura_llm.parse_model_output(out)
+    assert r["tool_calls"] == [{"cmd": "open_app", "args": {"app": "files"}}]
+    assert r["reply"] == "On it."
+
+def test_call_llama_returns_none_on_non_dict_json(monkeypatch):
+    class FakeResp:
+        def read(self): return b'[1, 2, 3]'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    assert aura_llm.call_llama("SYS", "hello") is None
