@@ -34,3 +34,19 @@ def test_parse_plain_chat_has_no_tool_calls():
 def test_parse_malformed_json_degrades_to_chat():
     r = aura_llm.parse_model_output('{"reply": "oops", "tool_calls": [broken')
     assert r["tool_calls"] == []
+
+def test_validate_accepts_known_tool_with_known_args():
+    tools = aura_llm.load_tools()
+    assert aura_llm.validate_call({"cmd": "set_brightness", "args": {"percent": 40}}, tools)
+
+def test_validate_rejects_unknown_tool():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "delete_everything", "args": {}}, tools)
+
+def test_validate_rejects_power_even_if_model_emits_it():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "power", "args": {"action": "poweroff"}}, tools)
+
+def test_validate_rejects_unknown_arg_keys():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "open_app", "args": {"rm": "-rf"}}, tools)

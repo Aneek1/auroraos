@@ -42,3 +42,15 @@ def parse_model_output(text):
                      for c in calls if isinstance(c, dict) and c.get("cmd")]
             return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
     return {"reply": text, "tool_calls": []}
+
+def _tool_index(tools):
+    return {t["name"]: t for t in tools}
+
+def validate_call(call, tools):
+    """True only if cmd is a registry tool and every arg key is declared."""
+    idx = _tool_index(tools)
+    spec = idx.get(call.get("cmd"))
+    if not spec:
+        return False
+    allowed = set(spec["args"].keys())
+    return all(k in allowed for k in (call.get("args") or {}))
