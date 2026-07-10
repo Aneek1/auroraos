@@ -102,3 +102,33 @@ def test_call_llama_returns_none_on_connection_error(monkeypatch):
         raise aura_llm.urllib.error.URLError("refused")
     monkeypatch.setattr(aura_llm.urllib.request, "urlopen", boom)
     assert aura_llm.call_llama("SYS", "hello") is None
+
+def _tools(): return aura_llm.load_tools()
+
+def test_ask_happy_path_executes_and_returns_actions(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama",
+        lambda s, u: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]}')
+    out = aura_llm.ask("open files", executors={}, status={})
+    assert out["actions"] == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+    assert "Opening Files" in out["a"]
+
+def test_ask_merges_system_notes_into_reply(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama",
+        lambda s, u: '{"reply":"Done.","tool_calls":[{"cmd":"set_brightness","args":{"percent":40}}]}')
+    execs = {"set_brightness": lambda a: "brightness set to 40%"}
+    out = aura_llm.ask("dim to 40", executors=execs, status={})
+    assert out["actions"][0]["ran"] is True
+    assert "brightness set to 40%" in out["a"]
+
+def test_ask_falls_back_when_model_down(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: None)
+    out = aura_llm.ask("what's my battery",
+                       executors={}, status={"battery": {"percent": 55, "status": "Full"}})
+    assert "55%" in out["a"]
+    assert out["actions"] == []
+
+def test_ask_falls_back_on_garbage(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: "%%% not json %%%")
+    out = aura_llm.ask("hello", executors={}, status={})
+    assert out["actions"] == []
+    assert out["a"]  # non-empty prose (the model's own text)

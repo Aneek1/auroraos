@@ -107,3 +107,21 @@ def call_llama(system, user):
         return data["choices"][0]["message"]["content"]
     except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError):
         return None
+
+def ask(user_text, executors=None, status=None, tools=None):
+    """Full pipeline: model -> parse -> validate/route -> reply. Always returns
+    {'a': str, 'actions': [...]}. Falls back to heuristics if the model fails."""
+    executors = executors or {}
+    tools = tools if tools is not None else load_tools()
+    system, user = build_prompt(tools, user_text)
+    raw = call_llama(system, user)
+    if raw is None:
+        return {"a": heuristic_fallback(user_text, status), "actions": []}
+    parsed = parse_model_output(raw)
+    actions, notes = route(parsed["tool_calls"], tools, executors)
+    reply = parsed["reply"] or ""
+    if notes:
+        reply = (reply + " " + " ".join(notes)).strip()
+    if not reply:
+        reply = heuristic_fallback(user_text, status)
+    return {"a": reply, "actions": actions}
