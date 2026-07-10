@@ -13,6 +13,7 @@ https://www.freedesktop.org/software/libevdev/libevdev-1.13.3.tar.xz
 https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.27.1/libinput-1.27.1.tar.gz
 https://gitlab.freedesktop.org/xkeyboard-config/libxkbcommon/-/archive/xkbcommon-1.8.0/libxkbcommon-xkbcommon-1.8.0.tar.gz
 https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.1.tar.gz
+https://gitlab.freedesktop.org/emersion/libdisplay-info/-/releases/0.2.0/downloads/libdisplay-info-0.2.0.tar.xz
 https://gitlab.freedesktop.org/wlroots/wlroots/-/releases/0.18.2/downloads/wlroots-0.18.2.tar.gz
 https://github.com/cage-kiosk/cage/releases/download/v0.2.0/cage-0.2.0.tar.gz
 
@@ -34,9 +35,12 @@ https://www.ijg.org/files/jpegsrc.v9f.tar.gz
 https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
 
 # --- external-app stack (script 12: labwc + foot terminal + AppImage) ---
-https://codeberg.org/dnkl/tllist/archive/1.1.0.tar.gz
-https://codeberg.org/dnkl/fcft/archive/3.1.9.tar.gz
-https://codeberg.org/dnkl/foot/archive/1.21.0.tar.gz
+# Use codeberg RELEASE urls (path-named tllist-1.1.0.tar.gz), not /archive/ (bare
+# 1.1.0.tar.gz) which script 12's `ls tllist-*.tar.*` glob would miss. labwc has
+# no path-named release asset, so script 02 fetches it with --content-disposition.
+https://codeberg.org/dnkl/tllist/releases/download/1.1.0/tllist-1.1.0.tar.gz
+https://codeberg.org/dnkl/fcft/releases/download/3.1.9/fcft-3.1.9.tar.gz
+https://codeberg.org/dnkl/foot/releases/download/1.21.0/foot-1.21.0.tar.gz
 https://github.com/libfuse/libfuse/releases/download/fuse-3.16.2/fuse-3.16.2.tar.gz
 https://github.com/labwc/labwc/archive/refs/tags/0.8.4.tar.gz
 

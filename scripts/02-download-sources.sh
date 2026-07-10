@@ -27,8 +27,11 @@ if md5sum -c md5sums >/dev/null 2>&1; then echo "all LFS sources OK"; else
 
 echo "== AuroraOS extras (Wayland kiosk stack + Firefox binary) =="
 mkdir -p extras && cd extras
+# --content-disposition so GitHub/codeberg /archive/ urls save with their proper
+# repo-prefixed name (e.g. labwc-0.8.4.tar.gz), not the bare tag (0.8.4.tar.gz)
+# that the meson build globs would miss.
 grep -vE '^#|^$' "$REPO/config/extras.list" | while read -r url; do
-  $WGET "$url"
+  $WGET --content-disposition "$url"
 done
 FF_URL="https://download-installer.cdn.mozilla.net/pub/firefox/releases/${FIREFOX_VERSION}/${FIREFOX_PLATFORM}/en-US/firefox-${FIREFOX_VERSION}.tar.xz"
 if curl -sfIL "$FF_URL" >/dev/null; then

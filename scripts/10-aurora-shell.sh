@@ -57,7 +57,8 @@ abuild libevdev "--disable-static" 2>/dev/null || mbuild libevdev "-D tests=disa
 mbuild libinput "-D debug-gui=false -D tests=false -D documentation=false -D libwacom=false"
 mbuild libxkbcommon "-D enable-docs=false -D enable-x11=false"
 mbuild seatd 2>/dev/null || { [ -f $STAMPS/x-seatd ] || { xt 0.9.1.tar.gz; mkdir -p build; cd build; meson setup --prefix=/usr ..; ninja; ninja install; cd ..; fin; touch $STAMPS/x-seatd; }; }
-mbuild wlroots "-D examples=false -D xwayland=disabled -D backends=drm,libinput"
+mbuild libdisplay-info ""   # hard dep of wlroots 0.18 — build it FIRST (proven in the arm64 compile proof)
+mbuild wlroots "-D examples=false -D xwayland=disabled -D backends=drm,libinput -D renderers=gles2"
 mbuild cage "-D man-pages=disabled" 2>/dev/null || mbuild cage ""
 
 # fonts
