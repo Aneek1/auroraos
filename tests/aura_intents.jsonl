@@ -1,0 +1,10 @@
+{"say": "open the browser", "cmd": "browse"}
+{"say": "switch to light mode", "cmd": "set_theme"}
+{"say": "set brightness to 30", "cmd": "set_brightness"}
+{"say": "tile my windows for coding", "cmd": "tile_windows"}
+{"say": "turn off wi-fi", "cmd": "toggle_setting"}
+{"say": "lock the screen", "cmd": "lock"}
+{"say": "what did i miss", "cmd": "summarize_notifications"}
+{"say": "minimize everything", "cmd": "minimize_all"}
+{"say": "find my screenshots", "cmd": "search_files"}
+{"say": "how's my battery", "cmd": "system_status"}
