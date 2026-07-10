@@ -74,3 +74,19 @@ def route(calls, tools, executors):
         else:
             actions.append({"cmd": call["cmd"], "args": args, "ran": False})
     return actions, notes
+
+def heuristic_fallback(user_text, status=None):
+    """Deterministic reply when the model is unavailable. Mirrors the old /ask."""
+    qs = (user_text or "").lower()
+    status = status or {}
+    if "battery" in qs:
+        b = status.get("battery") or {}
+        pct = b.get("percent")
+        return (f"Battery is at {pct}% ({b.get('status','')})." if pct is not None
+                else "No battery — running on AC power.")
+    if "bright" in qs:
+        return f"Brightness is {status.get('brightness') or 'not controllable on this device'}%."
+    if any(k in qs for k in ("off", "shutdown", "power")):
+        return "Use the start-menu power button to shut down or restart."
+    return ("I can report battery, brightness, and system status, and control the "
+            "desktop — try 'open files' or 'set brightness to 40'.")

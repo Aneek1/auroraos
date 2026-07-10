@@ -71,3 +71,12 @@ def test_route_drops_invalid_calls():
     tools = aura_llm.load_tools()
     actions, notes = aura_llm.route([{"cmd": "power", "args": {}}], tools, {})
     assert actions == []
+
+def test_fallback_reports_battery():
+    r = aura_llm.heuristic_fallback("what's my battery",
+                                    status={"battery": {"percent": 88, "status": "Discharging"}})
+    assert "88%" in r
+
+def test_fallback_default_message():
+    r = aura_llm.heuristic_fallback("tell me a joke", status={})
+    assert "battery" in r.lower() or "status" in r.lower()
