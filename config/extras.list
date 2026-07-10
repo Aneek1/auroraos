@@ -46,3 +46,6 @@ https://github.com/labwc/labwc/archive/refs/tags/0.8.4.tar.gz
 
 # --- fonts (shell uses system-ui) ---
 https://github.com/notofonts/latin-greek-cyrillic/archive/refs/tags/NotoSans-v2.013.tar.gz
+
+# --- Aura on-device LLM (llama.cpp; model fetched separately in script 02) ---
+https://github.com/ggerganov/llama.cpp/archive/refs/tags/b4589.tar.gz
