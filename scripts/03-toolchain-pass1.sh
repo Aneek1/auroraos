@@ -72,8 +72,7 @@ if ! stamp glibc; then
     x86_64)
       ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64
       ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64/ld-lsb-x86-64.so.3 ;;
-    aarch64)
-      ln -sfv ../lib/ld-linux-aarch64.so.1 $LFS/lib64 2>/dev/null || true ;;
+    aarch64) : ;;  # loader is /lib/ld-linux-aarch64.so.1 via the lib->usr/lib symlink; no lib64
   esac
   patch -Np1 -i ../glibc-*-fhs-1.patch
   mkdir -v build && cd build
