@@ -8,3 +8,53 @@ CONFIG_RTC_DRV_PL031=y
 CONFIG_ARM_SCMI_PROTOCOL=y
 # Apple VZ console + entropy
 CONFIG_HW_RANDOM_VIRTIO=y
+
+# --- platform trim -----------------------------------------------------
+# Our aarch64 targets are exactly two: VMs (pure virtio, no SoC support
+# needed) and Apple Silicon. arm64 defconfig enables EVERY vendor's SoC
+# family, roughly doubling kernel build time for hardware AuroraOS will
+# never run on. Keep Apple, drop the rest. (Unknown symbols in a fragment
+# are ignored harmlessly by olddefconfig, so this list can outlive kernel
+# version bumps.)
+CONFIG_ARCH_APPLE=y
+# CONFIG_ARCH_ACTIONS is not set
+# CONFIG_ARCH_AIROHA is not set
+# CONFIG_ARCH_ALPINE is not set
+# CONFIG_ARCH_AMLOGIC is not set
+# CONFIG_ARCH_BCM is not set
+# CONFIG_ARCH_BCM2835 is not set
+# CONFIG_ARCH_BCM_IPROC is not set
+# CONFIG_ARCH_BCMBCA is not set
+# CONFIG_ARCH_BRCMSTB is not set
+# CONFIG_ARCH_BERLIN is not set
+# CONFIG_ARCH_EXYNOS is not set
+# CONFIG_ARCH_SPARX5 is not set
+# CONFIG_ARCH_K3 is not set
+# CONFIG_ARCH_LG1K is not set
+# CONFIG_ARCH_HISI is not set
+# CONFIG_ARCH_KEEMBAY is not set
+# CONFIG_ARCH_MEDIATEK is not set
+# CONFIG_ARCH_MESON is not set
+# CONFIG_ARCH_MVEBU is not set
+# CONFIG_ARCH_MXC is not set
+# CONFIG_ARCH_NPCM is not set
+# CONFIG_ARCH_QCOM is not set
+# CONFIG_ARCH_REALTEK is not set
+# CONFIG_ARCH_RENESAS is not set
+# CONFIG_ARCH_ROCKCHIP is not set
+# CONFIG_ARCH_SEATTLE is not set
+# CONFIG_ARCH_INTEL_SOCFPGA is not set
+# CONFIG_ARCH_STM32 is not set
+# CONFIG_ARCH_SUNXI is not set
+# CONFIG_ARCH_SYNQUACER is not set
+# CONFIG_ARCH_TEGRA is not set
+# CONFIG_ARCH_TESLA_FSD is not set
+# CONFIG_ARCH_SPRD is not set
+# CONFIG_ARCH_THUNDER is not set
+# CONFIG_ARCH_THUNDER2 is not set
+# CONFIG_ARCH_UNIPHIER is not set
+# CONFIG_ARCH_VISCONTI is not set
+# CONFIG_ARCH_XGENE is not set
+# CONFIG_ARCH_ZYNQMP is not set
+# keep VEXPRESS: QEMU -M virt is its close cousin and it's tiny
+CONFIG_ARCH_VEXPRESS=y
