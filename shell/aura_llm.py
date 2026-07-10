@@ -1,0 +1,27 @@
+"""Aura's on-device LLM layer: prompt -> llama.cpp -> validated tool calls.
+Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
+import json, os, re, urllib.request, urllib.error
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOOLS_PATH = os.environ.get("AURA_TOOLS", os.path.join(HERE, "..", "config", "aura-tools.json"))
+LLAMA_URL = os.environ.get("AURA_LLM_URL", "http://127.0.0.1:8080/v1/chat/completions")
+LLAMA_TIMEOUT = float(os.environ.get("AURA_LLM_TIMEOUT", "8"))
+
+def load_tools(path=None):
+    with open(path or TOOLS_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+def build_prompt(tools, user_text):
+    lines = []
+    for t in tools:
+        args = ", ".join(f"{k} ({v})" for k, v in t["args"].items()) or "none"
+        lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
+    system = (
+        "You are Aura, the on-device assistant for AuroraOS. You either answer in "
+        "prose, or perform actions by emitting a JSON object on its own line:\n"
+        '{"reply": "<short confirmation>", "tool_calls": [{"cmd": "<tool>", "args": {...}}]}\n'
+        "Tools you may call:\n" + "\n".join(lines) + "\n"
+        "Only use listed tools with listed args. Never invent tools or arguments. "
+        "If the user is just chatting, answer normally with no JSON."
+    )
+    return system, user_text
