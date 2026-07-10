@@ -1,6 +1,7 @@
 #!/bin/bash
 # AuroraOS 11 — optional live ISO. Run on the HOST (not chroot) after 10.
-# Needs on host: squashfs-tools, grub-efi-amd64-bin + grub-pc-bin, xorriso, cpio.
+# Needs on host: squashfs-tools, xorriso, cpio, mtools, and grub EFI tools for
+# the build arch (x86_64: grub-efi-amd64-bin + grub-pc-bin; aarch64: grub-efi-arm64-bin).
 set -e
 . "$(dirname "$0")/../config/build.conf"
 OUT=${1:-auroraos-${DISTRO_VERSION}.iso}
@@ -57,4 +58,4 @@ echo "== 4/4 grub-mkrescue =="
 grub-mkrescue -o "$OUT" "$WORK/iso"
 rm -rf "$WORK"
 echo "== done: $OUT — test with:"
-echo "   qemu-system-x86_64 -enable-kvm -m 4G -cdrom $OUT -vga virtio -bios /usr/share/ovmf/OVMF.fd"
+echo "   scripts/99-smoke-qemu.sh $OUT"
