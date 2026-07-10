@@ -25,3 +25,20 @@ def build_prompt(tools, user_text):
         "If the user is just chatting, answer normally with no JSON."
     )
     return system, user_text
+
+def parse_model_output(text):
+    """Return {'reply': str, 'tool_calls': [{'cmd','args'}]}. Never raises."""
+    text = (text or "").strip()
+    for m in re.finditer(r"\{.*\}", text, re.DOTALL):
+        try:
+            obj = json.loads(m.group(0))
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict) and "tool_calls" in obj:
+            calls = obj.get("tool_calls") or []
+            if not isinstance(calls, list):
+                calls = []
+            clean = [{"cmd": c.get("cmd"), "args": c.get("args") or {}}
+                     for c in calls if isinstance(c, dict) and c.get("cmd")]
+            return {"reply": str(obj.get("reply") or "").strip(), "tool_calls": clean}
+    return {"reply": text, "tool_calls": []}
