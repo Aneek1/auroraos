@@ -19,7 +19,7 @@ The M4 itself is the build machine, via a VM.
 6. Inside the VM, as root:
 
    ```bash
-   apt update && apt install -y git build-essential bison gawk texinfo \
+   apt update && apt install -y git build-essential m4 bison gawk texinfo \
      python3 wget curl xz-utils file bc libssl-dev libelf-dev flex cpio \
      squashfs-tools xorriso mtools grub-efi-arm64-bin dosfstools parted \
      qemu-system-arm qemu-efi-aarch64 busybox-static sudo
