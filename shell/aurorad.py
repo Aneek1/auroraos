@@ -12,9 +12,10 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
   POST /ask               {"q": "..."} -> heuristic reply (drop an LLM here later)
 """
 import json, os, re, glob, subprocess, time, urllib.parse
+import aura_llm
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-PORT = 7212
+PORT = int(os.environ.get("AURORAD_PORT", "7212"))
 LAUNCH_WHITELIST = {"terminal": ["foot"], "editor": ["foot", "vi"]}
 START = time.time()
 HOME = "/var/lib/aurora" if os.path.isdir("/var/lib/aurora") else os.path.expanduser("~")
@@ -174,21 +175,22 @@ class H(BaseHTTPRequestHandler):
             else:
                 self._send({"error": "unknown app"}, 403)
         elif self.path == "/ask":
-            qs = (data.get("q") or "").lower()
-            if "battery" in qs:
-                b = battery()
-                r = (f"Battery is at {b['percent']}% ({b['status']})."
-                     if b["percent"] is not None else "No battery — running on AC power.")
-            elif "bright" in qs:
-                r = f"Brightness is {brightness_get() or 'not controllable on this device'}%."
-            elif any(k in qs for k in ("off", "shutdown", "power")):
-                r = "Say the word — POST /power with poweroff. Or use the start-menu power button."
-            else:
-                r = ("I'm the stub where an on-device model plugs in. Right now I can report "
-                     "battery, brightness, and system status — the rest of AuroraOS is yours to build.")
-            self._send({"a": r})
+            q = data.get("q") or ""
+            status = {"battery": battery(), "brightness": brightness_get(),
+                      "net": net_up(), "os": "AuroraOS"}
+            executors = {
+                "set_brightness": lambda a: (brightness_set(int(a.get("percent", 50)))
+                                             and f"Brightness set to {int(a.get('percent',50))}%."),
+                "system_status": lambda a: self._status_line(status),
+            }
+            self._send(aura_llm.ask(q, executors=executors, status=status))
         else:
             self._send({"error": "not found"}, 404)
+
+    def _status_line(self, status):
+        b = status.get("battery") or {}
+        batt = f"{b['percent']}% ({b['status']})" if b.get("percent") is not None else "AC power"
+        return f"Battery {batt}; network {'up' if status.get('net') else 'down'}; {status.get('os')}."
 
     def log_message(self, *a): pass
 
