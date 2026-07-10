@@ -54,3 +54,23 @@ def validate_call(call, tools):
         return False
     allowed = set(spec["args"].keys())
     return all(k in allowed for k in (call.get("args") or {}))
+
+def route(calls, tools, executors):
+    """Execute system-side tools now; mark UI-side tools for the browser.
+    Returns (actions, notes) where notes are server-side result strings."""
+    idx = _tool_index(tools)
+    actions, notes = [], []
+    for call in calls:
+        if not validate_call(call, tools):
+            continue
+        spec = idx[call["cmd"]]
+        args = call.get("args") or {}
+        if spec["side"] == "system":
+            fn = executors.get(call["cmd"])
+            note = fn(args) if fn else None
+            if note:
+                notes.append(note)
+            actions.append({"cmd": call["cmd"], "args": args, "ran": True})
+        else:
+            actions.append({"cmd": call["cmd"], "args": args, "ran": False})
+    return actions, notes

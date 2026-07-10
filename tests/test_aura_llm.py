@@ -50,3 +50,24 @@ def test_validate_rejects_power_even_if_model_emits_it():
 def test_validate_rejects_unknown_arg_keys():
     tools = aura_llm.load_tools()
     assert not aura_llm.validate_call({"cmd": "open_app", "args": {"rm": "-rf"}}, tools)
+
+def test_route_executes_system_tool_and_marks_ran():
+    tools = aura_llm.load_tools()
+    calls = []
+    execs = {"set_brightness": lambda args: calls.append(args) or "brightness 40%"}
+    actions, notes = aura_llm.route(
+        [{"cmd": "set_brightness", "args": {"percent": 40}}], tools, execs)
+    assert calls == [{"percent": 40}]
+    assert actions == [{"cmd": "set_brightness", "args": {"percent": 40}, "ran": True}]
+    assert "brightness 40%" in notes[0]
+
+def test_route_defers_ui_tool_unrun():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route(
+        [{"cmd": "open_app", "args": {"app": "files"}}], tools, {})
+    assert actions == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+
+def test_route_drops_invalid_calls():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route([{"cmd": "power", "args": {}}], tools, {})
+    assert actions == []
