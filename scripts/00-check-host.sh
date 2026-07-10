@@ -9,7 +9,7 @@ echo "== AuroraOS host check =="
 ver_check(){
   if ! type -p "$2" &>/dev/null; then echo "ERROR: cannot find $2 ($1)"; BAD=1; return; fi
   # no head -n1 before the grep: perl's --version starts with a BLANK line
-  v=$("$2" --version 2>&1 | grep -oE '[0-9]+\.[0-9.]+' | head -n1)
+  v=$("$2" --version 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -n1)
   if printf '%s\n' "$3" "$v" | sort --version-sort --check &>/dev/null; then
     printf "OK:    %-10s %s >= %s\n" "$1" "$v" "$3"
   else
