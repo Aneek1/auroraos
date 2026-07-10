@@ -90,3 +90,20 @@ def heuristic_fallback(user_text, status=None):
         return "Use the start-menu power button to shut down or restart."
     return ("I can report battery, brightness, and system status, and control the "
             "desktop — try 'open files' or 'set brightness to 40'.")
+
+def call_llama(system, user):
+    """POST to llama-server; return assistant content or None on any failure."""
+    body = json.dumps({
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+        "temperature": 0.2,
+        "max_tokens": 256,
+    }).encode()
+    req = urllib.request.Request(LLAMA_URL, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=LLAMA_TIMEOUT) as r:
+            data = json.loads(r.read())
+        return data["choices"][0]["message"]["content"]
+    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError):
+        return None

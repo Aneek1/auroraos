@@ -80,3 +80,25 @@ def test_fallback_reports_battery():
 def test_fallback_default_message():
     r = aura_llm.heuristic_fallback("tell me a joke", status={})
     assert "battery" in r.lower() or "status" in r.lower()
+
+def test_call_llama_posts_messages_and_reads_content(monkeypatch):
+    captured = {}
+    class FakeResp:
+        def read(self): return b'{"choices":[{"message":{"content":"hi there"}}]}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = req.data
+        return FakeResp()
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", fake_urlopen)
+    out = aura_llm.call_llama("SYS", "hello")
+    assert out == "hi there"
+    body = aura_llm.json.loads(captured["body"])
+    assert body["messages"][0]["role"] == "system"
+    assert body["messages"][1]["content"] == "hello"
+
+def test_call_llama_returns_none_on_connection_error(monkeypatch):
+    def boom(req, timeout=None):
+        raise aura_llm.urllib.error.URLError("refused")
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", boom)
+    assert aura_llm.call_llama("SYS", "hello") is None
