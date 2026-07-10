@@ -1,14 +1,15 @@
 #!/bin/bash
 # AuroraOS 09 — GRUB (UEFI). Run INSIDE the chroot; /boot/efi must be mounted.
 set -e
+. /aurora/config/build.conf
 mountpoint -q /boot/efi || { echo "!! /boot/efi not mounted"; exit 1; }
 mountpoint -q /sys/firmware/efi/efivars || \
   mount -v -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || \
   echo "(efivars unavailable — NVRAM entry will be skipped; using removable path)"
 
-grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+grub-install --target=$GRUB_TARGET --efi-directory=/boot/efi \
   --bootloader-id=AuroraOS --removable || \
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=AuroraOS
+grub-install --target=$GRUB_TARGET --efi-directory=/boot/efi --bootloader-id=AuroraOS
 
 ROOTDEV=$(grep ROOT /.aurora-disk 2>/dev/null | cut -d= -f2)
 cat > /boot/grub/grub.cfg <<EOF
