@@ -79,6 +79,22 @@ if [ ! -f $STAMPS/x-firefox ]; then
   touch $STAMPS/x-firefox
 fi
 
+# ==== Aura on-device LLM: build llama-server, install model + registry ====
+if [ ! -f $STAMPS/x-llama ]; then
+  echo "==== extras: llama.cpp (cmake) ===="
+  tb=$(ls llama.cpp-*.tar.gz 2>/dev/null | head -1)
+  xt "$tb"
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON \
+        -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_SERVER=ON
+  cmake --build build --config Release -j"$(nproc)" --target llama-server
+  install -Dm755 build/bin/llama-server /opt/aura/bin/llama-server
+  fin; touch $STAMPS/x-llama
+fi
+
+# aura assets: the shared tool registry + the LLM module live next to the shell
+install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
+install -Dm644 /aurora/shell/aura_llm.py /opt/aura/shell/aura_llm.py
+
 # ---------- 4) AuroraOS shell + aurorad ----------
 install -d /usr/share/aurora/shell /usr/lib/aurora
 install -m644 /aurora/shell/index.html        /usr/share/aurora/shell/
@@ -86,12 +102,43 @@ install -m644 /aurora/shell/aurora-bridge.js  /usr/share/aurora/shell/
 install -m755 /aurora/shell/aurorad.py        /usr/lib/aurora/aurorad
 install -m755 /aurora/shell/aurora-session    /usr/bin/aurora-session
 
-install -m644 /aurora/systemd/aurorad.service      /usr/lib/systemd/system/
 install -m644 /aurora/systemd/aurora-shell.service /usr/lib/systemd/system/
 install -m644 /aurora/systemd/seatd.service        /usr/lib/systemd/system/ 2>/dev/null || true
 
-systemctl enable seatd aurorad aurora-shell
+systemctl enable seatd aurora-shell
 systemctl set-default graphical.target
+
+# ---------- Aura systemd units (llama-server first, aurorad with LLM env) ----------
+# Replaces the legacy /aurora/systemd/aurorad.service: aurorad now Wants the model
+# and gets AURA_TOOLS / AURA_LLM_URL from the environment.
+cat > /etc/systemd/system/aura-llm.service <<'EOF'
+[Unit]
+Description=Aura on-device LLM (llama.cpp)
+After=network.target
+[Service]
+User=aurora
+ExecStart=/opt/aura/bin/llama-server --model /opt/aura/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/aurorad.service <<'EOF'
+[Unit]
+Description=AuroraOS system bridge
+After=network.target aura-llm.service
+Wants=aura-llm.service
+[Service]
+User=aurora
+Environment=AURA_TOOLS=/opt/aura/config/aura-tools.json
+Environment=AURA_LLM_URL=http://127.0.0.1:8080/v1/chat/completions
+ExecStart=/usr/bin/python3 /opt/aura/shell/aurorad.py
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable aura-llm.service aurorad.service
 
 # firefox kiosk profile (no first-run, dark, local file access)
 install -d /var/lib/aurora/.mozilla/firefox/kiosk.default
