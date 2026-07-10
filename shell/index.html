@@ -791,8 +791,11 @@ const Aura=(()=>{
     for(const r of RULES){const hit=r(t);if(hit)return{...hit,conf:.9};}
     return{cmd:"capabilities",args:{},conf:.2};}
   function run(text){const{cmd,args}=interpret(text);return COMMANDS[cmd](args);}
-  return{interpret,run,COMMANDS,audit:AUDIT};
+  function exec(cmd,args){return COMMANDS[cmd]?COMMANDS[cmd](args||{}):`Unknown action: ${cmd}.`;}
+  function toolNames(){return Object.keys(COMMANDS);}
+  return{interpret,run,exec,toolNames,COMMANDS,audit:AUDIT};
 })();
+window.Aura = Aura;   // expose for aurora-bridge.js (classic-script const isn't a window prop)
 
 function cpReply(q){cpMsg(Aura.run(q),"a");}
 $("#cp-send").onclick=()=>{const v=$("#cp-in").value.trim();if(v){$("#cp-in").value="";cpAsk(v)}};

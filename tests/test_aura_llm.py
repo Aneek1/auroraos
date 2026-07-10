@@ -1,0 +1,170 @@
+# tests/test_aura_llm.py
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "shell"))
+import aura_llm
+
+def test_load_tools_reads_registry():
+    tools = aura_llm.load_tools()
+    names = {t["name"] for t in tools}
+    assert "set_brightness" in names and "open_app" in names
+
+def test_build_prompt_lists_tools_and_forbids_invention():
+    tools = aura_llm.load_tools()
+    system, user = aura_llm.build_prompt(tools, "open files")
+    assert "set_brightness" in system and "open_app" in system
+    assert "Never invent" in system
+    assert user == "open files"
+
+def test_parse_extracts_tool_calls():
+    out = '{"reply":"On it.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]}'
+    r = aura_llm.parse_model_output(out)
+    assert r["reply"] == "On it."
+    assert r["tool_calls"] == [{"cmd": "open_app", "args": {"app": "files"}}]
+
+def test_parse_json_embedded_in_prose():
+    out = 'Sure!\n{"reply":"Opening.","tool_calls":[{"cmd":"browse","args":{"q":"bbc.com"}}]}\nDone.'
+    r = aura_llm.parse_model_output(out)
+    assert r["tool_calls"][0]["cmd"] == "browse"
+
+def test_parse_plain_chat_has_no_tool_calls():
+    r = aura_llm.parse_model_output("The capital of France is Paris.")
+    assert r["tool_calls"] == []
+    assert "Paris" in r["reply"]
+
+def test_parse_malformed_json_degrades_to_chat():
+    r = aura_llm.parse_model_output('{"reply": "oops", "tool_calls": [broken')
+    assert r["tool_calls"] == []
+
+def test_validate_accepts_known_tool_with_known_args():
+    tools = aura_llm.load_tools()
+    assert aura_llm.validate_call({"cmd": "set_brightness", "args": {"percent": 40}}, tools)
+
+def test_validate_rejects_unknown_tool():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "delete_everything", "args": {}}, tools)
+
+def test_validate_rejects_power_even_if_model_emits_it():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "power", "args": {"action": "poweroff"}}, tools)
+
+def test_validate_rejects_unknown_arg_keys():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "open_app", "args": {"rm": "-rf"}}, tools)
+
+def test_route_executes_system_tool_and_marks_ran():
+    tools = aura_llm.load_tools()
+    calls = []
+    execs = {"set_brightness": lambda args: calls.append(args) or "brightness 40%"}
+    actions, notes = aura_llm.route(
+        [{"cmd": "set_brightness", "args": {"percent": 40}}], tools, execs)
+    assert calls == [{"percent": 40}]
+    assert actions == [{"cmd": "set_brightness", "args": {"percent": 40}, "ran": True}]
+    assert "brightness 40%" in notes[0]
+
+def test_route_defers_ui_tool_unrun():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route(
+        [{"cmd": "open_app", "args": {"app": "files"}}], tools, {})
+    assert actions == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+
+def test_route_drops_invalid_calls():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route([{"cmd": "power", "args": {}}], tools, {})
+    assert actions == []
+
+def test_fallback_reports_battery():
+    r = aura_llm.heuristic_fallback("what's my battery",
+                                    status={"battery": {"percent": 88, "status": "Discharging"}})
+    assert "88%" in r
+
+def test_fallback_default_message():
+    r = aura_llm.heuristic_fallback("tell me a joke", status={})
+    assert "battery" in r.lower() or "status" in r.lower()
+
+def test_call_llama_posts_messages_and_reads_content(monkeypatch):
+    captured = {}
+    class FakeResp:
+        def read(self): return b'{"choices":[{"message":{"content":"hi there"}}]}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = req.data
+        return FakeResp()
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", fake_urlopen)
+    out = aura_llm.call_llama("SYS", "hello")
+    assert out == "hi there"
+    body = aura_llm.json.loads(captured["body"])
+    assert body["messages"][0]["role"] == "system"
+    assert body["messages"][1]["content"] == "hello"
+
+def test_call_llama_returns_none_on_connection_error(monkeypatch):
+    def boom(req, timeout=None):
+        raise aura_llm.urllib.error.URLError("refused")
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", boom)
+    assert aura_llm.call_llama("SYS", "hello") is None
+
+def _tools(): return aura_llm.load_tools()
+
+def test_ask_happy_path_executes_and_returns_actions(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama",
+        lambda s, u: '{"reply":"Opening Files.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]}')
+    out = aura_llm.ask("open files", executors={}, status={})
+    assert out["actions"] == [{"cmd": "open_app", "args": {"app": "files"}, "ran": False}]
+    assert "Opening Files" in out["a"]
+
+def test_ask_merges_system_notes_into_reply(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama",
+        lambda s, u: '{"reply":"Done.","tool_calls":[{"cmd":"set_brightness","args":{"percent":40}}]}')
+    execs = {"set_brightness": lambda a: "brightness set to 40%"}
+    out = aura_llm.ask("dim to 40", executors=execs, status={})
+    assert out["actions"][0]["ran"] is True
+    assert "brightness set to 40%" in out["a"]
+
+def test_ask_falls_back_when_model_down(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: None)
+    out = aura_llm.ask("what's my battery",
+                       executors={}, status={"battery": {"percent": 55, "status": "Full"}})
+    assert "55%" in out["a"]
+    assert out["actions"] == []
+
+def test_ask_falls_back_on_garbage(monkeypatch):
+    monkeypatch.setattr(aura_llm, "call_llama", lambda s, u: "%%% not json %%%")
+    out = aura_llm.ask("hello", executors={}, status={})
+    assert out["actions"] == []
+    assert out["a"]  # non-empty prose (the model's own text)
+
+def test_route_system_tool_without_executor_is_not_ran():
+    tools = aura_llm.load_tools()
+    actions, notes = aura_llm.route([{"cmd": "system_status", "args": {}}], tools, {})
+    assert actions == [{"cmd": "system_status", "args": {}, "ran": False}]
+
+def test_route_executor_exception_is_guarded():
+    tools = aura_llm.load_tools()
+    def boom(a): raise RuntimeError("hardware fault")
+    actions, notes = aura_llm.route(
+        [{"cmd": "set_brightness", "args": {"percent": 40}}], tools, {"set_brightness": boom})
+    assert actions[0]["ran"] is False
+    assert notes  # a short error note was recorded
+
+def test_validate_rejects_non_dict_args():
+    tools = aura_llm.load_tools()
+    assert not aura_llm.validate_call({"cmd": "set_brightness", "args": ["percent"]}, tools)
+
+def test_parse_non_dict_args_coerced_to_empty():
+    out = '{"reply":"x","tool_calls":[{"cmd":"set_brightness","args":["percent"]}]}'
+    r = aura_llm.parse_model_output(out)
+    assert r["tool_calls"] == [{"cmd": "set_brightness", "args": {}}]
+
+def test_parse_tool_call_object_followed_by_more_json():
+    out = '{"reply":"On it.","tool_calls":[{"cmd":"open_app","args":{"app":"files"}}]} then {"x":1}'
+    r = aura_llm.parse_model_output(out)
+    assert r["tool_calls"] == [{"cmd": "open_app", "args": {"app": "files"}}]
+    assert r["reply"] == "On it."
+
+def test_call_llama_returns_none_on_non_dict_json(monkeypatch):
+    class FakeResp:
+        def read(self): return b'[1, 2, 3]'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(aura_llm.urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    assert aura_llm.call_llama("SYS", "hello") is None

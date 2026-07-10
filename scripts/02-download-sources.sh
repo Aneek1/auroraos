@@ -43,4 +43,21 @@ else
   exit 1
 fi
 
+# ---- Aura LLM model (bundled, offline-first) ----
+AURA_MODEL_DIR="$LFS/opt/aura/models"
+AURA_MODEL="Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+AURA_MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/${AURA_MODEL}"
+mkdir -p "$AURA_MODEL_DIR"
+if [ ! -f "$AURA_MODEL_DIR/$AURA_MODEL" ]; then
+  echo "==== downloading Aura model ($AURA_MODEL, ~0.8 GB) ===="
+  wget --timeout=30 --tries=5 -O "$AURA_MODEL_DIR/$AURA_MODEL" "$AURA_MODEL_URL"
+fi
+# Integrity: GGUF files start with the ASCII magic "GGUF"; reject truncated/HTML error pages.
+if [ "$(head -c 4 "$AURA_MODEL_DIR/$AURA_MODEL")" != "GGUF" ]; then
+  echo "!! Aura model is not a valid GGUF (download failed?). Removing."; rm -f "$AURA_MODEL_DIR/$AURA_MODEL"; exit 1
+fi
+sz=$(stat -c%s "$AURA_MODEL_DIR/$AURA_MODEL")
+[ "$sz" -gt 500000000 ] || { echo "!! Aura model too small ($sz bytes) — incomplete."; exit 1; }
+echo "Aura model OK ($sz bytes)."
+
 echo "== done — proceed to 03-toolchain-pass1.sh =="

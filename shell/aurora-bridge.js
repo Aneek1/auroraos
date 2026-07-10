@@ -80,14 +80,19 @@
     };
   }
 
-  /* ---- Aura assistant: try aurorad first, fall back to canned ---- */
+  /* ---- Aura assistant: aurorad runs the model + system tools; we run UI tools ---- */
   const origAsk = window.cpAsk;
   if (typeof origAsk === "function") {
     window.cpAsk = function (q) {
       if (!live) return origAsk(q);
       window.cpMsg(q, "u");
       j("/ask", { method: "POST", body: JSON.stringify({ q }) })
-        .then((d) => window.cpMsg(d.a, "a"))
+        .then((d) => {
+          (d.actions || []).forEach((a) => {
+            if (!a.ran && window.Aura && window.Aura.exec) window.Aura.exec(a.cmd, a.args);
+          });
+          window.cpMsg(d.a || "…", "a");
+        })
         .catch(() => window.cpReply(q.toLowerCase()));
     };
   }

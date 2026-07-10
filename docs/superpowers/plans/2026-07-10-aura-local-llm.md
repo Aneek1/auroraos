@@ -1052,6 +1052,15 @@ git commit -m "test(aura): live intent fixtures + skippable smoke against llama-
 - [ ] Update `docs/CONTINUE-ON-MAC.md`: note the extra ~0.8 GB model download in script 02 and that `aura-llm.service` must be running for Aura's smart replies (heuristics otherwise).
 - [ ] Update project memory `auroraos_m4_project.md` with the Aura-LLM feature state.
 
+## Post-execution corrections (2026-07-10)
+
+Built subagent-driven; two-stage review caught real defects fixed beyond the task text above. Recorded here so the plan matches the shipped code:
+
+- **`aura_llm.py` hardening** (commit `c714fe3`): `call_llama` now `except Exception` (a non-dict JSON response raised an uncaught `TypeError`); executor calls in `route` are wrapped (an executor raising escaped `ask`'s "always returns" contract); `ran` is `True` only on a real successful execution (system tool with no executor was falsely `ran:true`); non-dict `args` are coerced/rejected; the greedy `\{.*\}` parse became a brace-depth scanner (`_json_candidates`) so a tool-call object followed by more JSON still parses.
+- **`window.Aura` exposure** (commit `3780cd7`): `Aura` is a classic-script `const`, so `window.Aura` was `undefined` and the bridge silently skipped every UI action. `index.html` now does `window.Aura = Aura;` after the IIFE. (Task 10's code block above omitted this line — it is required.)
+- **Bridge filename:** the real file is `shell/aurora-bridge.js` (not `aura-bridge.js` as written in Task 11 / the file table).
+- **`aurorad.service`** (commit `9da4981`): ExecStart is `/usr/bin/python3 /usr/lib/aurora/aurorad` (aurorad installs there, not `/opt/aura/shell/aurorad.py`), and `aura_llm.py` installs to `/usr/lib/aurora/` next to it so `import aura_llm` resolves; the registry stays at `/opt/aura/config/` (found via `AURA_TOOLS`). aurorad runs as **root** (no `User=` line) — it writes the backlight and calls `systemctl`; only `aura-llm.service` runs as `User=aurora`.
+
 ## Self-review notes (author)
 
 - **Spec coverage:** model choice → Tasks 12/13; llama.cpp runtime → 13/14; tool routing (server vs UI) → 5/9/11; shared registry → 1; prompt → 2; guardrails (whitelist, no power, fallback) → 4/6/8; bundled offline model → 12; systemd units → 13; tests (offline unit, fallback, whitelist, aarch64 build, in-VM) → 3–9/14/15. All spec sections mapped.
