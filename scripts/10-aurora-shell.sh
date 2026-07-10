@@ -93,7 +93,7 @@ fi
 
 # aura assets: the shared tool registry + the LLM module live next to the shell
 install -Dm644 /aurora/config/aura-tools.json /opt/aura/config/aura-tools.json
-install -Dm644 /aurora/shell/aura_llm.py /opt/aura/shell/aura_llm.py
+install -Dm644 /aurora/shell/aura_llm.py /usr/lib/aurora/aura_llm.py
 
 # ---------- 4) AuroraOS shell + aurorad ----------
 install -d /usr/share/aurora/shell /usr/lib/aurora
@@ -129,10 +129,9 @@ Description=AuroraOS system bridge
 After=network.target aura-llm.service
 Wants=aura-llm.service
 [Service]
-User=aurora
 Environment=AURA_TOOLS=/opt/aura/config/aura-tools.json
 Environment=AURA_LLM_URL=http://127.0.0.1:8080/v1/chat/completions
-ExecStart=/usr/bin/python3 /opt/aura/shell/aurorad.py
+ExecStart=/usr/bin/python3 /usr/lib/aurora/aurorad
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target
