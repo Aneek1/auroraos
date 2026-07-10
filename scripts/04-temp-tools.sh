@@ -10,7 +10,7 @@ sudo -u lfs env -i HOME=/home/lfs TERM="$TERM" \
 cd $LFS/sources
 STAMPS=$LFS/var/lib/aurora-build
 stamp(){ [ -f $STAMPS/$1 ]; }; mark(){ touch $STAMPS/$1; }
-CFG="--host=$LFS_TGT --build=$(sh gcc-*/config.guess 2>/dev/null || echo x86_64-pc-linux-gnu)"
+CFG="--host=$LFS_TGT --build=$(sh gcc-*/config.guess 2>/dev/null || echo $(uname -m)-pc-linux-gnu)"
 
 # generic cross build: name | extra configure args | extra make-install args
 xbuild(){

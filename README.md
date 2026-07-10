@@ -19,6 +19,9 @@ wired to real hardware through `aurorad`, a small localhost system API
 ## Requirements
 
 - A build host (or VM) with a distro that passes `00-check-host.sh` (Debian 12 / Ubuntu 24.04 work)
+- **Architectures:** x86_64 and aarch64. The build host's arch is the target
+  arch (`AURORA_ARCH` auto-detects). For aarch64 — including running AuroraOS
+  on Apple Silicon in a VM — see `docs/build-host-utm.md`.
 - A spare disk or virtual disk (≥ 30 GB) — **it will be wiped**
 - 4+ cores, 8+ GB RAM, and patience: **6–12 hours of compilation** (~200 SBU total)
 - Run everything as root inside the VM, from this repo's root
@@ -76,3 +79,9 @@ Login is automatic: `aurora-shell.service` starts `cage` + Firefox in kiosk
 mode as the unprivileged `aurora` user; `aurorad.service` provides the system
 bridge on 127.0.0.1:7212. TTY2 (Ctrl-Alt-F2) gives you a normal shell —
 user `aneek`, password set during script 7.
+
+## Roadmap: Apple Silicon bare metal
+
+The aarch64 port is workstream A of the M4 bare-metal plan — see
+`docs/superpowers/specs/2026-07-10-m4-baremetal-design.md`. Bare-metal M4
+(m1n1/t8132 bringup) is workstream B and has its own milestone ladder.

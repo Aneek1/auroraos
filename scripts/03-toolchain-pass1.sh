@@ -7,13 +7,15 @@ set -e
 # lfs user (LFS ch. 4.3)
 getent group lfs >/dev/null || groupadd lfs
 id lfs &>/dev/null || useradd -s /bin/bash -g lfs -m -k /dev/null lfs
-mkdir -pv "$LFS"/{etc,var,usr/{bin,lib,sbin},lib64,tools}
+mkdir -pv "$LFS"/{etc,var,usr/{bin,lib,sbin},tools}
+case "$AURORA_ARCH" in x86_64) mkdir -pv "$LFS/lib64" ;; esac
 for i in bin lib sbin; do ln -sfv usr/$i "$LFS/$i"; done
-chown -R lfs "$LFS"/{usr,lib64,tools,var,etc,sources} 2>/dev/null || true
+chown -R lfs "$LFS"/{usr,tools,var,etc,sources} "$LFS/lib64" 2>/dev/null || true
 
 # everything below runs as lfs with a clean env
 sudo -u lfs env -i HOME=/home/lfs TERM="$TERM" \
   LFS="$LFS" LFS_TGT="$LFS_TGT" MAKEFLAGS="$MAKEFLAGS" \
+  AURORA_ARCH="$AURORA_ARCH" LDSO="$LDSO" \
   PATH="$LFS/tools/bin:/usr/bin:/bin" CONFIG_SITE="$LFS/usr/share/config.site" \
   bash -e <<'LFSEOF'
 cd $LFS/sources
@@ -66,8 +68,12 @@ fi
 # ---- glibc (LFS 5.5) ----
 if ! stamp glibc; then
   P=$(ls glibc-*.tar.xz | head -1); xt $P
-  ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64
-  ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64/ld-lsb-x86-64.so.3
+  case "$AURORA_ARCH" in
+    x86_64)
+      ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64
+      ln -sfv ../lib/ld-linux-x86-64.so.2 $LFS/lib64/ld-lsb-x86-64.so.3 ;;
+    aarch64) : ;;  # loader is /lib/ld-linux-aarch64.so.1 via the lib->usr/lib symlink; no lib64
+  esac
   patch -Np1 -i ../glibc-*-fhs-1.patch
   mkdir -v build && cd build
   echo "rootsbindir=/usr/sbin" > configparms
@@ -78,7 +84,7 @@ if ! stamp glibc; then
   sed '/RTLDLIST=/s@/usr@@g' -i $LFS/usr/bin/ldd
   # sanity check
   echo 'int main(){}' | $LFS_TGT-gcc -xc -
-  readelf -l a.out | grep -q '/lib64/ld-linux-x86-64' || { echo "!! glibc sanity FAILED"; exit 1; }
+  readelf -l a.out | grep -q "$LDSO" || { echo "!! glibc sanity FAILED (want $LDSO)"; exit 1; }
   rm a.out
   fin ${P%.tar.xz}; mark glibc; echo "== glibc done, sanity OK =="
 fi

@@ -23,7 +23,14 @@ mkdir -p extras && cd extras
 grep -vE '^#|^$' "$REPO/config/extras.list" | while read -r url; do
   wget -nc "$url"
 done
-wget -nc "https://download-installer.cdn.mozilla.net/pub/firefox/releases/${FIREFOX_VERSION}/linux-x86_64/en-US/firefox-${FIREFOX_VERSION}.tar.xz" \
-  || echo "!! Firefox fetch failed — check FIREFOX_VERSION in build.conf against mozilla.org/en-US/firefox/all/"
+FF_URL="https://download-installer.cdn.mozilla.net/pub/firefox/releases/${FIREFOX_VERSION}/${FIREFOX_PLATFORM}/en-US/firefox-${FIREFOX_VERSION}.tar.xz"
+if curl -sfIL "$FF_URL" >/dev/null; then
+  wget -nc "$FF_URL"
+else
+  echo "!! No Firefox ${FIREFOX_VERSION} build for ${FIREFOX_PLATFORM} on Mozilla CDN."
+  echo "!! Check https://ftp.mozilla.org/pub/firefox/releases/ for a version with a"
+  echo "!! ${FIREFOX_PLATFORM} directory and set FIREFOX_VERSION in config/build.conf."
+  exit 1
+fi
 
 echo "== done — proceed to 03-toolchain-pass1.sh =="
