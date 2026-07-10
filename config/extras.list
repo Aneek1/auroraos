@@ -7,11 +7,11 @@ https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.23.1/downloads/wayla
 https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.41/downloads/wayland-protocols-1.41.tar.xz
 https://dri.freedesktop.org/libdrm/libdrm-2.4.124.tar.xz
 https://www.cairographics.org/releases/pixman-0.44.2.tar.gz
-https://github.com/anholt/libepoxy/releases/download/1.5.10/libepoxy-1.5.10.tar.xz
+https://download.gnome.org/sources/libepoxy/1.5/libepoxy-1.5.10.tar.xz
 https://mesa.freedesktop.org/archive/mesa-24.3.4.tar.xz
 https://www.freedesktop.org/software/libevdev/libevdev-1.13.3.tar.xz
 https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.27.1/libinput-1.27.1.tar.gz
-https://xkbcommon.org/download/libxkbcommon-1.8.0.tar.xz
+https://gitlab.freedesktop.org/xkeyboard-config/libxkbcommon/-/archive/xkbcommon-1.8.0/libxkbcommon-xkbcommon-1.8.0.tar.gz
 https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.1.tar.gz
 https://gitlab.freedesktop.org/wlroots/wlroots/-/releases/0.18.2/downloads/wlroots-0.18.2.tar.gz
 https://github.com/cage-kiosk/cage/releases/download/v0.2.0/cage-0.2.0.tar.gz
@@ -25,7 +25,7 @@ https://download.gnome.org/sources/pango/1.56/pango-1.56.1.tar.xz
 https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz
 https://download.gnome.org/sources/atk/2.38/atk-2.38.0.tar.xz
 https://download.gnome.org/sources/at-spi2-core/2.54/at-spi2-core-2.54.1.tar.xz
-https://download.gnome.org/sources/gtk/3.24/gtk-3.24.43.tar.xz
+https://download.gnome.org/sources/gtk/3.24/gtk-3.24.52.tar.xz
 https://dbus.freedesktop.org/releases/dbus/dbus-1.16.0.tar.xz
 https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
 https://downloads.sourceforge.net/freetype/freetype-2.13.3.tar.xz
@@ -34,4 +34,4 @@ https://www.ijg.org/files/jpegsrc.v9f.tar.gz
 https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
 
 # --- fonts (shell uses system-ui) ---
-https://github.com/googlefonts/noto-fonts/archive/refs/tags/NotoSans-v2.013.tar.gz
+https://github.com/notofonts/latin-greek-cyrillic/archive/refs/tags/NotoSans-v2.013.tar.gz

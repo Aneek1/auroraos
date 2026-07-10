@@ -63,7 +63,9 @@ mbuild cage "-D man-pages=disabled" 2>/dev/null || mbuild cage ""
 # fonts
 if [ ! -f $STAMPS/x-fonts ]; then
   mkdir -p /usr/share/fonts/noto
-  xt NotoSans*.tar.gz 2>/dev/null && { find . -name '*.ttf' -exec cp {} /usr/share/fonts/noto/ \; ; fin; } || true
+  # extract dir name varies by host repo (notofonts archive) — don't cd into it
+  tar xf NotoSans*.tar.gz 2>/dev/null && \
+    { find ./*NotoSans* -name '*.ttf' -exec cp {} /usr/share/fonts/noto/ \; ; rm -rf ./*NotoSans*/; } || true
   fc-cache -f || true
   touch $STAMPS/x-fonts
 fi
