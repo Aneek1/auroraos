@@ -281,8 +281,9 @@ EOF
     diffutils|gawk|findutils) generic $1;;
     groff)     PAGE=A4 generic groff;;
     grub)      unset {C,CPP,CXX,LD}FLAGS
+               case $(uname -m) in aarch64) GT=arm64;; *) GT=x86_64;; esac
                ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu --disable-werror \
-                 --with-platform=efi --target=x86_64 --program-prefix=""
+                 --with-platform=efi --target=$GT --program-prefix=""
                make; make install
                mv -v /etc/bash_completion.d/grub /usr/share/bash-completion/completions 2>/dev/null||true;;
     gzip)      generic gzip;;
