@@ -8,4 +8,8 @@ mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 export HOME=/var/lib/aurora
 export XDG_CONFIG_HOME=$HOME/.config
 export MOZ_ENABLE_WAYLAND=1
+# Use wlroots' software (pixman) renderer. On GPUs without a working EGL/GLES
+# driver (e.g. a VM on mesa llvmpipe, or headless), the GLES2 renderer crashes
+# in eglInitialize; pixman renders in software and is the right fit there.
+export WLR_RENDERER=${WLR_RENDERER:-pixman}
 exec labwc

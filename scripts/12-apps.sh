@@ -26,10 +26,11 @@ mbuild fcft "-D run-shaping=disabled -D test-text-shaping=false"
 mbuild foot "-D grapheme-clustering=disabled -D docs=disabled -D themes=false"
 
 # ---------- 2) AppImage runtime (fuse3) ----------
-mbuild fuse3 "-D examples=false -D tests=false -D useroot=false"
+# tarball is fuse-3.x (not fuse3-); non-critical for the shell, so don't let it block labwc
+mbuild fuse "-D examples=false -D tests=false -D useroot=false" || { cd /sources/extras; echo "!! fuse (AppImage) skipped — non-critical"; }
 
 # ---------- 3) compositor: labwc (wlroots already built in script 10) ----------
-mbuild labwc "-D man-pages=disabled"
+mbuild labwc "-D man-pages=disabled -D icon=disabled"   # icon=disabled drops the libsfdo (git-only) dep
 
 # ---------- 4) labwc config for the 'aurora' user ----------
 CFG=/var/lib/aurora/.config/labwc
@@ -61,10 +62,10 @@ cat > "$CFG/rc.xml" <<"EOF"
 </labwc_config>
 EOF
 
-# autostart: launch the shell (normal maximized window, NOT kiosk, so other
-# apps can appear on top of it)
+# autostart: launch the shell fullscreen with no browser chrome, so it looks/feels
+# like the OS desktop (labwc still floats native app windows on top of it).
 cat > "$CFG/autostart" <<"EOF"
-firefox --new-window "file:///usr/share/aurora/shell/index.html" &
+firefox --kiosk "file:///usr/share/aurora/shell/index.html" &
 EOF
 chown -R aurora:aurora /var/lib/aurora/.config /var/lib/aurora/Apps
 

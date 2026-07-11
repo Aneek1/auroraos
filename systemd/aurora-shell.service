@@ -8,7 +8,14 @@ Conflicts=getty@tty1.service
 [Service]
 User=aurora
 Group=aurora
-PAMName=login
+# NOTE: no PAMName — this build has no Linux-PAM (systemd built -D pamconfdir=no).
+# PAMName=login here makes systemd fail to start the service. seatd (not logind/PAM)
+# grants the aurora user seat/DRM access.
+# Without pam_systemd nothing creates /run/user/<uid>, so labwc can't open its wayland
+# socket. systemd makes it here (aurora is uid 999); XDG_RUNTIME_DIR points at it.
+RuntimeDirectory=user/999
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/user/999
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
