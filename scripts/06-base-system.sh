@@ -86,6 +86,10 @@ xt(){ local tb; tb=$(ls $1-*.tar.* 2>/dev/null | grep -E "$1-[0-9]" | head -1)
       rm -rf "$SRCDIR"; tar xf "$tb"; cd "$SRCDIR"; }
 fin(){ cd /sources; rm -rf "$SRCDIR"; }
 generic(){ ./configure --prefix=/usr $2; make; make install; }
+# build a wheel from the current source tree, then install it (LFS Python-module way).
+# --find-links . fails: the cwd is the *extracted source*, not a dir of wheels.
+pywheel(){ pip3 wheel -w dist --no-cache-dir --no-build-isolation --no-deps "$PWD"
+           pip3 install --no-index --no-user --find-links dist "$1"; }
 
 # ---------- ch 7.7–7.13: chroot temporary tools ----------
 if ! stamp ch7-tools; then
@@ -121,7 +125,7 @@ bld(){
   echo "==== building $1 ===="
   xt $1
   case $1 in
-    man-pages) rm -v man3/crypt* 2>/dev/null||true; make prefix=/usr install;;
+    man-pages) rm -v man3/crypt* 2>/dev/null||true; make -R GIT=false prefix=/usr install;;
     iana-etc)  cp -v services protocols /etc;;
     glibc)
       patch -Np1 -i ../glibc-*-fhs-1.patch
@@ -164,7 +168,10 @@ EOF
     lz4)       make BUILD_STATIC=no PREFIX=/usr; make BUILD_STATIC=no PREFIX=/usr install;;
     zstd)      make prefix=/usr; make prefix=/usr install; rm -v /usr/lib/libzstd.a;;
     file)      generic file;;
-    readline)  generic readline "--disable-static --with-curses";;
+    readline)  ./configure --prefix=/usr --disable-static --with-curses \
+                 --docdir=/usr/share/doc/readline
+               make SHLIB_LIBS="-lncursesw"
+               make SHLIB_LIBS="-lncursesw" install;;
     m4)        generic m4;;
     bc)        CC=gcc ./configure --prefix=/usr -G -O3 -r; make; make install;;
     flex)      generic flex "--docdir=/usr/share/doc/flex --disable-static"
@@ -207,7 +214,7 @@ EOF
       ln -sfv ../../libexec/gcc/$(gcc -dumpmachine)/$(gcc -dumpversion)/liblto_plugin.so /usr/lib/bfd-plugins/ 2>/dev/null||true
       # sanity
       echo 'int main(){}' > dummy.c; cc dummy.c -v -Wl,--verbose &> dummy.log
-      readelf -l a.out | grep -q ': /usr/lib/ld-linux' || { echo "!! gcc sanity FAILED — see LFS 8.29"; exit 1; }
+      readelf -l a.out | grep -qE ': /(usr/)?lib(64)?/ld-linux' || { echo "!! gcc sanity FAILED — see LFS 8.29"; exit 1; }
       rm dummy.c a.out dummy.log
       mkdir -pv /usr/share/gdb/auto-load/usr/lib
       mv -v /usr/lib/*gdb.py /usr/share/gdb/auto-load/usr/lib 2>/dev/null||true
@@ -227,7 +234,8 @@ EOF
                  ln -sfv ${lib}w.pc /usr/lib/pkgconfig/${lib}.pc
                done
                ln -sfv libncursesw.so /usr/lib/libcurses.so;;
-    sed|psmisc|grep|gdbm|gperf|expat|less|libpipeline|make|patch|man-db) generic $1;;
+    sed|psmisc|grep|gdbm|gperf|expat|less|libpipeline|make|patch) generic $1;;
+    man-db)    generic man-db "--disable-setuid";;
     gettext)   generic gettext "--disable-static --docdir=/usr/share/doc/gettext"
                chmod -v 0755 /usr/lib/preloadable_libintl.so;;
     bison)     generic bison "--docdir=/usr/share/doc/bison";;
@@ -236,7 +244,8 @@ EOF
     libtool)   generic libtool; rm -fv /usr/lib/libltdl.a;;
     inetutils) ./configure --prefix=/usr --bindir=/usr/bin --localstatedir=/var \
                  --disable-logger --disable-whois --disable-rcp --disable-rexec \
-                 --disable-rlogin --disable-rsh --disable-servers
+                 --disable-rlogin --disable-rsh --disable-servers \
+                 CFLAGS="-g -O2 -Wno-error=implicit-function-declaration"
                make; make install
                mv -v /usr/{,s}bin/ifconfig 2>/dev/null||true;;
     perl)      sh Configure -des -Dprefix=/usr -Dvendorprefix=/usr \
@@ -260,16 +269,15 @@ EOF
                install -vm644 config/libelf.pc /usr/lib/pkgconfig
                rm /usr/lib/libelf.a 2>/dev/null||true;;
     libffi)    generic libffi "--disable-static --with-gcc-arch=native";;
-    Python)    ./configure --prefix=/usr --enable-shared --with-system-expat --enable-optimizations
+    Python)    ./configure --prefix=/usr --enable-shared --with-system-expat
                make; make install
                ln -sfv python3 /usr/bin/python;;
-    flit_core) pip3 install --no-index --no-build-isolation --find-links . flit_core || \
-               python3 -m pip install --no-index --find-links . flit_core;;
-    wheel)     pip3 install --no-index --find-links . wheel;;
-    setuptools) pip3 install --no-index --find-links . setuptools;;
+    flit_core)  pywheel flit_core;;
+    wheel)      pywheel wheel;;
+    setuptools) pywheel setuptools;;
     ninja)     python3 configure.py --bootstrap
                install -vm755 ninja /usr/bin/;;
-    meson)     pip3 install --no-index --find-links . meson || { python3 setup.py install; };;
+    meson)     pywheel meson;;
     coreutils) patch -Np1 -i ../coreutils-*-i18n-*.patch 2>/dev/null||true
                autoreconf -fv 2>/dev/null||true
                FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr \
@@ -284,6 +292,9 @@ EOF
                case $(uname -m) in aarch64) GT=arm64;; *) GT=x86_64;; esac
                ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu --disable-werror \
                  --with-platform=efi --target=$GT --program-prefix=""
+               # grub 2.12 tarball omits this file that syminfo.lst cat's; an empty one is
+               # enough (declaring deps here can create module dependency circles)
+               [ -f grub-core/extra_deps.lst ] || : > grub-core/extra_deps.lst
                make; make install
                mv -v /etc/bash_completion.d/grub /usr/share/bash-completion/completions 2>/dev/null||true;;
     gzip)      generic gzip;;
@@ -303,8 +314,8 @@ set mouse=
 syntax on
 EOF
                ;;
-    MarkupSafe) pip3 install --no-index --find-links . MarkupSafe;;
-    Jinja2)    pip3 install --no-index --find-links . Jinja2;;
+    markupsafe) pywheel markupsafe;;
+    jinja2)    pywheel jinja2;;
     systemd)   sed -i -e 's/GROUP="render"/GROUP="video"/' -e 's/GROUP="sgx", //' rules.d/50-udev-default.rules.in
                mkdir build; cd build
                meson setup --prefix=/usr --buildtype=release \
@@ -339,14 +350,24 @@ EOF
   fin; mark sys-$1
 }
 
+# aarch64 has no lib64: gcc/libffi et al. install runtime libs to /usr/lib64, but
+# the loader only searches /usr/lib. Merge any real lib64 into lib and symlink so
+# every current + future lib64 install lands where ld.so looks. (idempotent)
+if [ -d /usr/lib64 ] && [ ! -L /usr/lib64 ]; then
+  cp -a /usr/lib64/. /usr/lib/ 2>/dev/null || true
+  rm -rf /usr/lib64
+fi
+[ -e /usr/lib64 ] || ln -sv lib /usr/lib64
+ldconfig 2>/dev/null || true
+
 # build order (LFS ch. 8) — libffi/Python before meson/ninja; systemd late
 for p in man-pages iana-etc glibc zlib bzip2 xz lz4 zstd file readline m4 bc flex \
          binutils gmp mpfr mpc attr acl libcap libxcrypt shadow gcc pkgconf ncurses \
          sed psmisc gettext bison grep bash libtool gdbm gperf expat inetutils less \
-         perl XML-Parser intltool autoconf automake openssl kmod elfutils libffi \
-         Python flit_core wheel setuptools ninja meson coreutils diffutils gawk \
+         perl XML-Parser intltool autoconf automake openssl elfutils libffi \
+         Python flit_core wheel setuptools ninja meson kmod coreutils diffutils gawk \
          findutils groff grub gzip iproute2 kbd libpipeline make patch texinfo vim \
-         MarkupSafe Jinja2 systemd dbus man-db procps-ng util-linux e2fsprogs; do
+         markupsafe jinja2 systemd dbus man-db procps-ng util-linux e2fsprogs; do
   bld $p
 done
 

@@ -1,8 +1,9 @@
 #!/bin/bash
 # AuroraOS 07 — system configuration + branding. Run INSIDE the chroot.
 set -e
-STAMPS=/var/lib/aurora-build
 . /aurora/config/build.conf 2>/dev/null || { DISTRO_NAME=AuroraOS; DISTRO_VERSION=1.0; DISTRO_CODENAME=daybreak; DISTRO_USER=aneek; }
+# build.conf sets STAMPS=$LFS/... (host path); inside the chroot it must be absolute
+STAMPS=/var/lib/aurora-build
 
 ROOTDEV=$(grep ROOT /.aurora-disk 2>/dev/null | cut -d= -f2)
 ESPDEV=$(grep ESP /.aurora-disk 2>/dev/null | cut -d= -f2)
@@ -58,13 +59,15 @@ export LANG=en_SG.UTF-8
 export PS1='\u@\h:\w\$ '
 EOF
 
-# users
-echo "== set root password =="
-passwd root
+# users — set passwords non-interactively so the build is scriptable.
+# Defaults are for the concept image; override with AURORA_ROOT_PW / AURORA_USER_PW,
+# or change them on first boot.
+echo "== set root password (default 'aurora' — change on first boot) =="
+echo "root:${AURORA_ROOT_PW:-aurora}" | chpasswd
 if ! id "$DISTRO_USER" &>/dev/null; then
   useradd -m -G wheel,audio,video,input -s /bin/bash "$DISTRO_USER"
-  echo "== set password for $DISTRO_USER =="
-  passwd "$DISTRO_USER"
+  echo "== set password for $DISTRO_USER (default 'aurora') =="
+  echo "${DISTRO_USER}:${AURORA_USER_PW:-aurora}" | chpasswd
 fi
 # kiosk user (no password login, no shell)
 id aurora &>/dev/null || useradd -r -m -d /var/lib/aurora -G video,input,seat -s /usr/bin/false aurora

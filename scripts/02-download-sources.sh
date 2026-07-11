@@ -33,6 +33,9 @@ mkdir -p extras && cd extras
 grep -vE '^#|^$' "$REPO/config/extras.list" | while read -r url; do
   $WGET --content-disposition "$url"
 done
+# SourceForge mirror redirects (freetype, libpng) append a ?viasf=... query the
+# build globs would miss; strip it so the tarball has its plain name.
+for f in *\?*; do [ -e "$f" ] && mv -n "$f" "${f%%\?*}"; done
 FF_URL="https://download-installer.cdn.mozilla.net/pub/firefox/releases/${FIREFOX_VERSION}/${FIREFOX_PLATFORM}/en-US/firefox-${FIREFOX_VERSION}.tar.xz"
 if curl -sfIL "$FF_URL" >/dev/null; then
   $WGET "$FF_URL"
