@@ -10,9 +10,11 @@ https://www.cairographics.org/releases/pixman-0.44.2.tar.gz
 https://download.gnome.org/sources/libepoxy/1.5/libepoxy-1.5.10.tar.xz
 https://mesa.freedesktop.org/archive/mesa-24.3.4.tar.xz
 https://www.freedesktop.org/software/libevdev/libevdev-1.13.3.tar.xz
+https://bitmath.org/code/mtdev/mtdev-1.1.7.tar.bz2
 https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.27.1/libinput-1.27.1.tar.gz
-https://gitlab.freedesktop.org/xkeyboard-config/libxkbcommon/-/archive/xkbcommon-1.8.0/libxkbcommon-xkbcommon-1.8.0.tar.gz
+https://github.com/xkbcommon/libxkbcommon/archive/refs/tags/xkbcommon-1.8.0.tar.gz
 https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.1.tar.gz
+https://github.com/vcrhonek/hwdata/archive/refs/tags/v0.393.tar.gz
 https://gitlab.freedesktop.org/emersion/libdisplay-info/-/releases/0.2.0/downloads/libdisplay-info-0.2.0.tar.xz
 https://gitlab.freedesktop.org/wlroots/wlroots/-/releases/0.18.2/downloads/wlroots-0.18.2.tar.gz
 https://github.com/cage-kiosk/cage/releases/download/v0.2.0/cage-0.2.0.tar.gz
@@ -21,6 +23,15 @@ https://github.com/cage-kiosk/cage/releases/download/v0.2.0/cage-0.2.0.tar.gz
 https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz
 https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.bz2
 https://www.cairographics.org/releases/cairo-1.18.2.tar.xz
+https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz
+https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.5.tar.xz
+# cmake build tool + LLVM (mesa llvmpipe software renderer) — see 10-aurora-shell.sh
+https://github.com/Kitware/CMake/releases/download/v3.31.5/cmake-3.31.5.tar.gz
+https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/llvm-19.1.7.src.tar.xz
+https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/cmake-19.1.7.src.tar.xz
+https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/third-party-19.1.7.src.tar.xz
+https://files.pythonhosted.org/packages/00/62/791b31e69ae182791ec67f04850f2f062716bbd205483d63a215f3e062d3/mako-1.3.12.tar.gz
+https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz
 https://github.com/harfbuzz/harfbuzz/releases/download/10.2.0/harfbuzz-10.2.0.tar.xz
 https://download.gnome.org/sources/pango/1.56/pango-1.56.1.tar.xz
 https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz
@@ -39,13 +50,16 @@ https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
 # 1.1.0.tar.gz) which script 12's `ls tllist-*.tar.*` glob would miss. labwc has
 # no path-named release asset, so script 02 fetches it with --content-disposition.
 https://codeberg.org/dnkl/tllist/releases/download/1.1.0/tllist-1.1.0.tar.gz
-https://codeberg.org/dnkl/fcft/releases/download/3.1.9/fcft-3.1.9.tar.gz
+https://codeberg.org/dnkl/fcft/releases/download/3.3.1/fcft-3.3.1.tar.gz
 https://codeberg.org/dnkl/foot/releases/download/1.21.0/foot-1.21.0.tar.gz
 https://github.com/libfuse/libfuse/releases/download/fuse-3.16.2/fuse-3.16.2.tar.gz
 https://github.com/labwc/labwc/archive/refs/tags/0.8.4.tar.gz
 
-# --- fonts (shell uses system-ui) ---
-https://github.com/notofonts/latin-greek-cyrillic/archive/refs/tags/NotoSans-v2.013.tar.gz
+# --- fonts (shell uses "Noto Sans") — prebuilt hinted TTFs (the source repo has no .ttf) ---
+https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf
+https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-Bold.ttf
+https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-Italic.ttf
+https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-BoldItalic.ttf
 
 # --- Aura on-device LLM (llama.cpp; model fetched separately in script 02) ---
 https://github.com/ggerganov/llama.cpp/archive/refs/tags/b4589.tar.gz
