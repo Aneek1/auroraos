@@ -25,10 +25,14 @@ cat > "$IR/init" <<"EOF"
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t devtmpfs none /dev
-# wait for the CD device
-i=0; while [ $i -lt 20 ]; do
-  for d in /dev/sr0 /dev/vdb /dev/sdb; do
-    [ -b $d ] && mount -t iso9660 -o ro $d /mnt/cd 2>/dev/null && break 2
+# find the live medium: Apple/virtio expose the ISO as /dev/sda (scsi), QEMU as sr0,
+# etc. Probe every block device and confirm it actually holds our squashfs.
+i=0; while [ $i -lt 30 ]; do
+  for d in /dev/sr0 /dev/sr1 /dev/sda /dev/sdb /dev/vda /dev/vdb $(ls /dev/sd? /dev/sr? /dev/vd? 2>/dev/null); do
+    [ -b "$d" ] || continue
+    mount -t iso9660 -o ro "$d" /mnt/cd 2>/dev/null || continue
+    [ -f /mnt/cd/live/rootfs.squashfs ] && break 2
+    umount /mnt/cd 2>/dev/null
   done
   sleep 1; i=$((i+1))
 done
@@ -37,6 +41,10 @@ mount -t tmpfs none /mnt/rw
 mkdir -p /mnt/rw/upper /mnt/rw/work
 mount -t overlay -o lowerdir=/mnt/ro,upperdir=/mnt/rw/upper,workdir=/mnt/rw/work overlay /mnt/newroot
 mkdir -p /mnt/newroot/run
+# the live boot runs on the overlay root; the installed fstab mounts /dev/vdb*
+# which don't exist here. Blank it in the (tmpfs) overlay so systemd doesn't drop
+# to emergency mode waiting on those devices.
+: > /mnt/newroot/etc/fstab
 umount /proc /sys
 exec switch_root /mnt/newroot /usr/lib/systemd/systemd
 EOF
@@ -49,7 +57,7 @@ cat > "$WORK/iso/boot/grub/grub.cfg" <<EOF
 set default=0
 set timeout=3
 menuentry "AuroraOS ${DISTRO_VERSION} — live" {
-  linux /boot/vmlinuz-aurora quiet loglevel=3 vt.global_cursor_default=0
+  linux /boot/vmlinuz-aurora quiet loglevel=3 vt.global_cursor_default=0 fstab=0 systemd.default_timeout_start_sec=20 systemd.mask=systemd-networkd-wait-online.service
   initrd /boot/initramfs.gz
 }
 EOF
