@@ -1,0 +1,11 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Build artifacts / large binaries (never commit these)
+*.gguf
+*.iso
+*.squashfs
+*.o
+*.so
+build/

@@ -3,13 +3,30 @@ Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
 import json, os, urllib.request, urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOOLS_PATH = os.environ.get("AURA_TOOLS", os.path.join(HERE, "..", "config", "aura-tools.json"))
+
+def _default_tools_path():
+    """Find aura-tools.json across the layouts it ships in (installed vs repo).
+    Returning a real path matters: a missing file made every /ask raise."""
+    for c in (os.path.join(HERE, "config", "aura-tools.json"),
+              os.path.join(HERE, "..", "config", "aura-tools.json"),
+              "/opt/aura/config/aura-tools.json",
+              "/usr/share/aurora/config/aura-tools.json",
+              "/aurora/config/aura-tools.json"):
+        if os.path.exists(c):
+            return c
+    return os.path.join(HERE, "config", "aura-tools.json")
+
+TOOLS_PATH = os.environ.get("AURA_TOOLS", _default_tools_path())
 LLAMA_URL = os.environ.get("AURA_LLM_URL", "http://127.0.0.1:8080/v1/chat/completions")
-LLAMA_TIMEOUT = float(os.environ.get("AURA_LLM_TIMEOUT", "8"))
+LLAMA_TIMEOUT = float(os.environ.get("AURA_LLM_TIMEOUT", "90"))
 
 def load_tools(path=None):
-    with open(path or TOOLS_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    """Load the tool registry; return [] if it can't be read so /ask never 500s."""
+    try:
+        with open(path or TOOLS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
 
 def build_prompt(tools, user_text):
     lines = []
@@ -17,12 +34,16 @@ def build_prompt(tools, user_text):
         args = ", ".join(f"{k} ({v})" for k, v in t["args"].items()) or "none"
         lines.append(f'- {t["name"]}: {t["description"]} args: {args}')
     system = (
-        "You are Aura, the on-device assistant for AuroraOS. You either answer in "
-        "prose, or perform actions by emitting a JSON object on its own line:\n"
-        '{"reply": "<short confirmation>", "tool_calls": [{"cmd": "<tool>", "args": {...}}]}\n'
-        "Tools you may call:\n" + "\n".join(lines) + "\n"
-        "Only use listed tools with listed args. Never invent tools or arguments. "
-        "If the user is just chatting, answer normally with no JSON."
+        "You are Aura, the friendly on-device AI assistant built into AuroraOS, a "
+        "Linux desktop. You run entirely on the user's own device — no cloud. "
+        "Chat naturally and helpfully, and keep answers concise (1-3 sentences "
+        "unless the user asks for more).\n"
+        "Only when the user clearly asks you to perform a desktop action, reply with "
+        "a single JSON object and nothing else, for example:\n"
+        '{"reply": "Opening a terminal.", "tool_calls": [{"cmd": "open_terminal", "args": {}}]}\n'
+        "Available actions:\n" + "\n".join(lines) + "\n"
+        "Use only these actions with these args; never invent them. For ordinary "
+        "conversation, questions, or explanations, just answer in plain text."
     )
     return system, user_text
 
@@ -51,7 +72,7 @@ def parse_model_output(text):
             obj = json.loads(candidate)
         except (ValueError, TypeError):
             continue
-        if isinstance(obj, dict) and "tool_calls" in obj:
+        if isinstance(obj, dict) and ("tool_calls" in obj or "reply" in obj):
             calls = obj.get("tool_calls") or []
             if not isinstance(calls, list):
                 calls = []
@@ -107,9 +128,11 @@ def route(calls, tools, executors):
     return actions, notes
 
 def heuristic_fallback(user_text, status=None):
-    """Deterministic reply when the model is unavailable. Mirrors the old /ask."""
-    qs = (user_text or "").lower()
+    """Deterministic reply when the model is unavailable or produced garbage."""
+    qs = (user_text or "").lower().strip()
     status = status or {}
+    if any(qs == g or qs.startswith(g + " ") for g in ("hi", "hello", "hey", "yo", "hiya")):
+        return "Hi! I'm Aura, your on-device assistant. Ask me anything, or tell me to open an app or check the system."
     if "battery" in qs:
         b = status.get("battery") or {}
         pct = b.get("percent")
@@ -118,9 +141,23 @@ def heuristic_fallback(user_text, status=None):
     if "bright" in qs:
         return f"Brightness is {status.get('brightness') or 'not controllable on this device'}%."
     if any(k in qs for k in ("off", "shutdown", "power")):
-        return "Use the start-menu power button to shut down or restart."
-    return ("I can report battery, brightness, and system status, and control the "
-            "desktop — try 'open files' or 'set brightness to 40'.")
+        return "You can shut down or restart from the power controls, or just ask me to."
+    return ("I'm still warming up — the on-device model is loading. In the meantime I "
+            "can open apps, open a terminal, and report system status.")
+
+def _reply_is_bad(reply):
+    """True if the text is empty, leaked JSON, or an unfilled prompt placeholder
+    (small models sometimes echo the template, e.g. '<short confirmation>')."""
+    r = (reply or "").strip()
+    if not r:
+        return True
+    if r.startswith("{") or r.startswith("["):
+        return True
+    if "<short confirmation>" in r or "<tool>" in r or "<reply>" in r:
+        return True
+    if r.startswith("<") and r.endswith(">") and len(r) < 60:
+        return True
+    return False
 
 def call_llama(system, user):
     """POST to llama-server; return assistant content or None on any failure."""
@@ -128,7 +165,7 @@ def call_llama(system, user):
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "temperature": 0.2,
-        "max_tokens": 256,
+        "max_tokens": 128,
     }).encode()
     req = urllib.request.Request(LLAMA_URL, data=body,
                                  headers={"Content-Type": "application/json"})
@@ -155,6 +192,9 @@ def ask(user_text, executors=None, status=None, tools=None):
     reply = parsed["reply"] or ""
     if notes:
         reply = (reply + " " + " ".join(notes)).strip()
-    if not reply:
-        reply = heuristic_fallback(user_text, status)
+    # Small models sometimes leak raw/partial JSON or echo the prompt template
+    # (e.g. "<short confirmation>"). Never surface that — fall back to clean text.
+    # If an action actually ran, keep the note text even if the model's prose was bad.
+    if _reply_is_bad(reply):
+        reply = " ".join(notes).strip() if notes else heuristic_fallback(user_text, status)
     return {"a": reply, "actions": actions}

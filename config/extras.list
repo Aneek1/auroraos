@@ -43,9 +43,22 @@ https://codeberg.org/dnkl/fcft/releases/download/3.1.9/fcft-3.1.9.tar.gz
 https://codeberg.org/dnkl/foot/releases/download/1.21.0/foot-1.21.0.tar.gz
 https://github.com/libfuse/libfuse/releases/download/fuse-3.16.2/fuse-3.16.2.tar.gz
 https://github.com/labwc/labwc/archive/refs/tags/0.8.4.tar.gz
+# labwc 0.8.x dep
+https://gitlab.freedesktop.org/vyivel/libsfdo/-/archive/v0.1.3/libsfdo-v0.1.3.tar.gz
 
 # --- fonts (shell uses system-ui) ---
 https://github.com/notofonts/latin-greek-cyrillic/archive/refs/tags/NotoSans-v2.013.tar.gz
+
+# --- native Aurora desktop (script 13): layer-shell + mesa build dep + pango dep ---
+https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz
+https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.5.tar.xz
+http://bitmath.org/code/mtdev/mtdev-1.1.6.tar.bz2
+https://github.com/vcrhonek/hwdata/archive/refs/tags/v0.388.tar.gz
+# gtk-layer-shell needs --content-disposition (github archive tag file is v0.8.2.tar.gz)
+https://github.com/wmww/gtk-layer-shell/archive/refs/tags/v0.8.2.tar.gz
+# Mako + PyYAML = mesa build-time python deps (MarkupSafe is in base)
+https://files.pythonhosted.org/packages/source/M/Mako/Mako-1.3.5.tar.gz
+https://github.com/yaml/pyyaml/archive/refs/tags/6.0.2.tar.gz
 
 # --- Aura on-device LLM (llama.cpp; model fetched separately in script 02) ---
 https://github.com/ggerganov/llama.cpp/archive/refs/tags/b4589.tar.gz

@@ -1,0 +1,94 @@
+/* AuroraOS native shell — daybreak identity ported from shell/index.html.
+   GTK3 CSS. Aurora spectrum: #34e0c8 teal, #6ce5a0 green, #8b7cf6 violet,
+   #f072b6 pink, #f4a988 horizon; night base #0a0e1a. */
+
+/* ---- wallpaper ---- */
+window.wallpaper {
+  background-color: #0a0e1a;
+  background-image:
+    radial-gradient(farthest-side at 50% 0%,   rgba(139,124,246,0.28), transparent),
+    radial-gradient(farthest-side at 85% 6%,   rgba(52,224,200,0.16),  transparent),
+    radial-gradient(farthest-side at 18% 100%, rgba(244,169,136,0.22), transparent),
+    linear-gradient(to bottom, #0a0e1a 0%, #0e1424 46%, #15122a 100%);
+}
+.wp-brand {
+  color: rgba(238,241,248,0.10);
+  font-size: 120px;
+  font-weight: 800;
+  letter-spacing: 6px;
+}
+
+/* ---- shared surfaces ---- */
+label, button { color: #eef1f8; font-family: "Noto Sans", sans-serif; }
+
+/* ---- top bar ---- */
+#topbar {
+  background-color: rgba(13,16,28,0.86);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+}
+#logo { font-weight: 700; font-size: 14px; padding: 0 6px; }
+#logo .mark { color: #34e0c8; font-size: 17px; }
+#clock { font-size: 13.5px; font-weight: 600; }
+#clock:hover, .tbtn:hover { background-color: rgba(255,255,255,0.09); }
+.tbtn {
+  background: transparent; border: none; box-shadow: none;
+  padding: 4px 10px; border-radius: 9px; font-size: 13px;
+}
+.tray { color: #98a2ba; font-size: 13px; padding: 0 4px; }
+
+/* ---- dock ---- */
+#dock {
+  background-color: rgba(16,20,34,0.72);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  padding: 8px 10px;
+  box-shadow: 0 20px 50px -22px rgba(0,0,0,0.8);
+}
+.dbtn {
+  background: transparent; border: none; box-shadow: none;
+  padding: 6px 8px; border-radius: 12px;
+  font-size: 30px; min-width: 52px; min-height: 52px;
+}
+.dbtn:hover { background-color: rgba(255,255,255,0.10); }
+
+/* accent (Aura / primary) */
+.accent { background-image: none; background-color: #34e0c8; color: #08243a; font-weight: 600; }
+.accent:hover { background-color: #5eebd6; }
+
+/* ---- launcher ---- */
+#launcher {
+  background-color: rgba(13,16,28,0.94);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  box-shadow: 0 24px 70px -18px rgba(0,0,0,0.7);
+  padding: 22px;
+}
+#launcher .title { font-size: 18px; font-weight: 700; }
+#launcher-search {
+  background-color: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px; color: #eef1f8; padding: 8px 12px;
+  font-size: 14px;
+}
+#launcher-search image { color: #98a2ba; }
+.applaunch { background: transparent; border: none; box-shadow: none;
+  padding: 12px; border-radius: 14px; }
+.applaunch:hover { background-color: rgba(255,255,255,0.08); }
+.applaunch .aname { font-size: 12px; color: #dfe5f0; }
+.applaunch .aicon { font-size: 40px; }
+
+/* ---- Aura panel ---- */
+#aura {
+  background-color: rgba(13,16,28,0.94);
+  border-left: 1px solid rgba(255,255,255,0.14);
+}
+#aura .head { font-size: 15px; font-weight: 700; padding: 4px 2px 12px 2px; }
+.orb { font-size: 20px; }
+.msg-u { background-color: #34e0c8; color: #08243a; border-radius: 12px; padding: 9px 12px; }
+.msg-a { background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.09);
+  color: #eef1f8; border-radius: 12px; padding: 9px 12px; }
+#aura entry {
+  background-color: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px; color: #eef1f8; padding: 8px 10px;
+}

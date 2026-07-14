@@ -178,13 +178,98 @@ class H(BaseHTTPRequestHandler):
             q = data.get("q") or ""
             status = {"battery": battery(), "brightness": brightness_get(),
                       "net": net_up(), "os": "AuroraOS"}
+            env = {**os.environ,
+                   "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "wayland-0"),
+                   "MOZ_ENABLE_WAYLAND": "1"}
+
+            def _spawn(cmd, shell=False):
+                subprocess.Popen(cmd, shell=shell, env=env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            def _find_app(name):
+                name = (name or "").strip().lower()
+                if not name:
+                    return None
+                if name in ("terminal", "term", "console", "shell", "foot"):
+                    return {"name": "Terminal", "exec": "foot"}
+                apps = discover_apps()
+                for v in apps.values():
+                    if v["name"].strip().lower() == name:
+                        return v
+                for v in apps.values():
+                    if name in v["name"].strip().lower():
+                        return v
+                return None
+
+            def _open_terminal(a):
+                _spawn(["foot"]); return "Opening a terminal."
+
+            def _open_app(a):
+                want = a.get("name") or a.get("app") or ""
+                info = _find_app(want)
+                if not info:
+                    return f"I couldn't find an app called '{want}'."
+                _spawn(info["exec"], shell=isinstance(info["exec"], str))
+                return f"Opening {info['name']}."
+
+            def _list_apps(a):
+                names = sorted({v["name"] for v in discover_apps().values() if v.get("name")})
+                return ("Installed apps: " + ", ".join(names)) if names else \
+                       "Only the terminal is installed so far."
+
+            def _power(a):
+                act = a.get("action")
+                if act in ("poweroff", "reboot"):
+                    subprocess.Popen(["systemctl", act])
+                    return "Shutting down…" if act == "poweroff" else "Restarting…"
+                return "I can power off or restart — which would you like?"
+
             executors = {
+                "open_terminal": _open_terminal,
+                "open_app": _open_app,
+                "list_apps": _list_apps,
+                "power": _power,
                 "set_brightness": lambda a: (f"Brightness set to {int(a.get('percent', 50))}%."
                                              if brightness_set(int(a.get("percent", 50)))
                                              else "This device has no software-controllable backlight."),
                 "system_status": lambda a: self._status_line(status),
             }
-            self._send(aura_llm.ask(q, executors=executors, status=status))
+
+            # Fast-path obvious imperative commands. The bundled 1B model is not
+            # reliable at emitting tool-call JSON, so match clear intents directly
+            # and only defer to the model for open-ended chat.
+            ql = q.strip().lower()
+            shortcut = None
+            if re.search(r"\b(open|launch|start|new|run)\b.*\b(terminal|term|console|shell)\b", ql) \
+               or ql in ("terminal", "cli"):
+                shortcut = _open_terminal({})
+            elif re.search(r"\b(list|show|what|which|installed|available)\b.*\bapps?\b", ql) \
+                 or ql in ("apps", "applications"):
+                shortcut = _list_apps({})
+            elif re.search(r"\b(status|uptime|how'?s? (the )?(system|everything|things))\b", ql):
+                shortcut = self._status_line(status)
+            elif re.search(r"\bbattery\b", ql):
+                shortcut = aura_llm.heuristic_fallback(q, status)
+            elif re.search(r"\bbright", ql):
+                m2 = re.search(r"(\d{1,3})", ql)
+                shortcut = executors["set_brightness"](
+                    {"percent": m2.group(1) if m2 else 50})
+            elif re.search(r"\b(shut\s?down|power\s?off|turn\s?off)\b", ql):
+                shortcut = _power({"action": "poweroff"})
+            elif re.search(r"\b(restart|reboot)\b", ql):
+                shortcut = _power({"action": "reboot"})
+            else:
+                m = re.match(r"(?:open|launch|start|run)\s+(?:the\s+|an?\s+)?(.+)", ql)
+                if m:
+                    info = _find_app(m.group(1).strip(" .!?'\""))
+                    if info:
+                        _spawn(info["exec"], shell=isinstance(info["exec"], str))
+                        shortcut = f"Opening {info['name']}."
+
+            if shortcut is not None:
+                self._send({"a": shortcut, "actions": []})
+            else:
+                self._send(aura_llm.ask(q, executors=executors, status=status))
         else:
             self._send({"error": "not found"}, 404)
 
