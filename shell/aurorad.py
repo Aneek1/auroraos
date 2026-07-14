@@ -11,7 +11,7 @@ Tiny localhost HTTP API the web shell talks to. Root service, binds
   POST /launch            {"app": "<whitelisted>"}
   POST /ask               {"q": "..."} -> aura_llm: on-device LLM + tool-calls
 """
-import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shutil
+import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shutil, threading
 import aura_llm
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -439,6 +439,156 @@ def persist_setup():
             "message": "Persistent storage ready on %s. Restart now — from then "
                        "on your apps and settings are saved across reboots." % dev}
 
+# ----- install to disk --------------------------------------------------
+# The ISO is a live image (root = overlay of squashfs + tmpfs). This installs
+# a permanent copy onto a real disk: GPT (ESP + ext4 root), copy the pristine
+# squashfs system, install GRUB (UEFI, removable path), write a UUID fstab.
+# After this the machine boots from disk with a normal read-write root — the
+# ISO can be ejected. Runs in a background thread; the shell polls INSTALL.
+INSTALL = {"running": False, "stage": "idle", "pct": 0, "done": False, "error": ""}
+INSTALL_LOCK = threading.Lock()
+
+def _ist(stage, pct):
+    with INSTALL_LOCK:
+        INSTALL["stage"] = stage
+        INSTALL["pct"] = pct
+
+def list_target_disks():
+    """Whole, writable disks usable as an install target (dev, size, model)."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "-Ppdno", "NAME,TYPE,SIZE,MODEL,RO"], text=True)
+    except Exception:
+        return []
+    disks = []
+    for ln in out.splitlines():
+        d = dict(re.findall(r'(\w+)="([^"]*)"', ln))
+        if d.get("TYPE") == "disk" and d.get("RO") != "1":
+            disks.append({"dev": d.get("NAME", ""), "size": d.get("SIZE", ""),
+                          "model": (d.get("MODEL") or "Disk").strip() or "Disk"})
+    return disks
+
+def _part_names(disk):
+    # nvme0n1 -> p1/p2 ; sda -> 1/2
+    base = os.path.basename(disk)
+    if re.search(r'\d$', base):   # nvme/mmc end in a digit
+        return disk + "p1", disk + "p2"
+    return disk + "1", disk + "2"
+
+def _uuid(dev):
+    return subprocess.check_output(
+        ["blkid", "-s", "UUID", "-o", "value", dev], text=True).strip()
+
+def _run(cmd, **kw):
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
+                   stderr=subprocess.STDOUT, **kw)
+
+def _do_install(disk):
+    T = "/mnt/target"
+    src = "/mnt/ro" if os.path.ismount("/mnt/ro") else "/"
+    esp, root = _part_names(disk)
+    try:
+        _ist("Partitioning disk", 4)
+        _run(["wipefs", "-a", disk])
+        # GPT: 512M EFI System partition (type U, bootable) + rest Linux (type L)
+        subprocess.run(["sfdisk", disk], check=True, text=True,
+                       input="label: gpt\n,512M,U,*\n,,L\n",
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        subprocess.run(["udevadm", "settle"], check=False)
+        for _ in range(20):
+            if os.path.exists(esp) and os.path.exists(root):
+                break
+            time.sleep(0.5)
+
+        _ist("Formatting partitions", 12)
+        _run(["mkfs.vfat", "-F32", "-n", "EFI", esp])
+        _run(["mkfs.ext4", "-F", "-q", "-L", "aurora", root])
+
+        _ist("Mounting target", 18)
+        os.makedirs(T, exist_ok=True)
+        _run(["mount", root, T])
+        os.makedirs(T + "/boot/efi", exist_ok=True)
+        _run(["mount", esp, T + "/boot/efi"])
+
+        # copy the pristine system, top-level entry by entry for progress
+        skip = {"proc", "sys", "dev", "run", "tmp", "mnt", "media", "lost+found"}
+        entries = [e for e in sorted(os.listdir(src)) if e not in skip]
+        for i, e in enumerate(entries):
+            _ist("Copying system (%s)" % e, 20 + int(60 * i / max(1, len(entries))))
+            _run(["cp", "-a", os.path.join(src, e), T + "/"])
+        for e in ("proc", "sys", "dev", "run", "tmp", "mnt", "media"):
+            os.makedirs(os.path.join(T, e), exist_ok=True)
+
+        _ist("Installing bootloader", 84)
+        for m, opt in (("dev", ["--bind"]), ("dev/pts", ["--bind"]),
+                       ("proc", ["-t", "proc"]), ("sys", ["-t", "sysfs"])):
+            tgt = os.path.join(T, m)
+            os.makedirs(tgt, exist_ok=True)
+            if "--bind" in opt:
+                _run(["mount", "--bind", "/" + m, tgt])
+            else:
+                _run(["mount"] + opt + ["none", tgt])
+        _run(["chroot", T, "grub-install", "--target=x86_64-efi",
+              "--efi-directory=/boot/efi", "--bootloader-id=AuroraOS",
+              "--removable", "--recheck"])
+
+        _ist("Writing boot config", 92)
+        ruuid = _uuid(root)
+        with open(T + "/boot/grub/grub.cfg", "w") as f:
+            f.write(
+                "set default=0\nset timeout=2\n"
+                "insmod part_gpt\ninsmod ext2\ninsmod all_video\n"
+                "set gfxpayload=keep\n\n"
+                'menuentry "AuroraOS 1.0 — daybreak" {\n'
+                "  linux /boot/vmlinuz-aurora root=UUID=%s rw quiet loglevel=3 "
+                "vt.global_cursor_default=0\n}\n\n"
+                'menuentry "AuroraOS (verbose / rescue)" {\n'
+                "  linux /boot/vmlinuz-aurora root=UUID=%s rw "
+                "systemd.unit=multi-user.target\n}\n" % (ruuid, ruuid))
+
+        _ist("Writing fstab", 96)
+        euuid = _uuid(esp)
+        with open(T + "/etc/fstab", "w") as f:
+            f.write("# AuroraOS — written by the installer\n"
+                    "UUID=%s  /          ext4  defaults,noatime  0 1\n"
+                    "UUID=%s  /boot/efi  vfat  umask=0077        0 2\n"
+                    % (ruuid, euuid))
+
+        for m in ("dev/pts", "dev", "proc", "sys", "boot/efi", ""):
+            subprocess.run(["umount", "-lf", os.path.join(T, m)], check=False)
+        _ist("Done", 100)
+        with INSTALL_LOCK:
+            INSTALL["done"] = True
+    except subprocess.CalledProcessError as e:
+        out = (e.output or b"")
+        out = out.decode("utf-8", "replace") if isinstance(out, bytes) else str(out)
+        with INSTALL_LOCK:
+            INSTALL["error"] = ("%s failed: %s" % (e.cmd[0] if e.cmd else "step",
+                                                   out[-300:])) or "install failed"
+    except Exception as e:
+        with INSTALL_LOCK:
+            INSTALL["error"] = str(e)
+    finally:
+        for m in ("dev/pts", "dev", "proc", "sys", "boot/efi", ""):
+            subprocess.run(["umount", "-lf", os.path.join(T, m)], check=False)
+        with INSTALL_LOCK:
+            INSTALL["running"] = False
+
+def install_start(disk):
+    valid = {d["dev"] for d in list_target_disks()}
+    if disk not in valid:
+        return {"error": "Unknown or unusable disk: %r" % disk}
+    with INSTALL_LOCK:
+        if INSTALL["running"]:
+            return {"error": "An installation is already in progress."}
+        INSTALL.update(running=True, stage="Starting", pct=0, done=False, error="")
+    threading.Thread(target=_do_install, args=(disk,), daemon=True).start()
+    return {"ok": True}
+
+def install_progress():
+    with INSTALL_LOCK:
+        return dict(INSTALL)
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         # ensure_ascii=False so unicode (em-dashes, accents, emoji) goes out as
@@ -480,6 +630,13 @@ class H(BaseHTTPRequestHandler):
             self._send(store_catalog())
         elif url.path == "/system/persist-status":
             self._send(persist_status())
+        elif url.path == "/system/disks":
+            disks = list_target_disks()
+            self._send({"disks": disks,
+                        "list": "\n".join("%s|%s|%s" % (d["dev"], d["size"], d["model"])
+                                          for d in disks)})
+        elif url.path == "/system/install-progress":
+            self._send(install_progress())
         else:
             self._send({"error": "not found"}, 404)
 
@@ -491,6 +648,8 @@ class H(BaseHTTPRequestHandler):
             self._send(store_install(data.get("id", "")))
         elif self.path == "/system/persist-setup":
             self._send(persist_setup())
+        elif self.path == "/system/install":
+            self._send(install_start(data.get("disk", "")))
         elif self.path == "/store/remove":
             self._send(store_remove(data.get("id", "")))
         elif self.path == "/brightness":

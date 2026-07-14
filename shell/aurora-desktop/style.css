@@ -264,3 +264,21 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
 .lock-time { font-size: 118px; font-weight: 200; color: #ffffff; }
 .lock-date { font-size: 21px; color: #dfe5f0; }
 .lock-hint { font-size: 13px; color: #c8d0de; }
+
+/* ---- OS installer ---- */
+#instwin {
+  background-color: #0d101c; color: #eef1f8;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+#instwin radiobutton { color: #eef1f8; font-size: 13px; padding: 4px 2px; }
+#instwin progressbar trough { min-height: 12px; border-radius: 7px;
+  background-color: rgba(255,255,255,0.08); }
+#instwin progressbar progress { min-height: 12px; border-radius: 7px;
+  background-image: linear-gradient(to right, #34e0c8, #8b7cf6); }
+.inst-warn { color: #f4a988; font-size: 12px; }
+.inst-go {
+  background-image: linear-gradient(to bottom, #34e0c8, #21b6a3);
+  color: #06201c; font-weight: 600; border-radius: 9px; padding: 6px 16px;
+}
+.inst-go:disabled { background-image: none;
+  background-color: rgba(255,255,255,0.10); color: rgba(255,255,255,0.35); }

@@ -1604,6 +1604,23 @@ static char *json_str(const char *json, const char *key) {
     }
     return g_string_free(out, FALSE);
 }
+static int json_int(const char *json, const char *key) {
+    if (!json) return 0;
+    char *pat = g_strdup_printf("\"%s\"", key);
+    char *p = strstr(json, pat); g_free(pat);
+    if (!p) return 0;
+    p = strchr(p, ':'); if (!p) return 0;
+    return atoi(p + 1);
+}
+static gboolean json_true(const char *json, const char *key) {
+    if (!json) return FALSE;
+    char *pat = g_strdup_printf("\"%s\"", key);
+    char *p = strstr(json, pat); g_free(pat);
+    if (!p) return FALSE;
+    p = strchr(p, ':'); if (!p) return FALSE; p++;
+    while (*p == ' ') p++;
+    return strncmp(p, "true", 4) == 0;
+}
 static void am_persist(GtkMenuItem *i, gpointer u) {
     aurora_toast("▤", "Setting up persistent storage…");
     char *r = aurorad_send("POST", "/system/persist-setup", "{}");
@@ -1611,6 +1628,177 @@ static void am_persist(GtkMenuItem *i, gpointer u) {
     if (!msg) msg = json_str(r, "message");
     aurora_toast("▤", msg ? msg : "Storage: no response from aurorad.");
     g_free(msg); g_free(r);
+}
+
+/* ---------- OS installer: copy the live system onto a real disk ---------- */
+static GtkWidget *g_inst = NULL, *g_inst_disks = NULL, *g_inst_bar = NULL;
+static GtkWidget *g_inst_status = NULL, *g_inst_go = NULL, *g_inst_gate = NULL;
+static char g_inst_disk[128] = "";
+static guint g_inst_timer = 0;
+static gboolean g_inst_finished = FALSE;
+
+static void inst_disk_toggled(GtkToggleButton *b, gpointer dev) {
+    if (gtk_toggle_button_get_active(b))
+        g_strlcpy(g_inst_disk, (char *)dev, sizeof g_inst_disk);
+}
+static void inst_gate_toggled(GtkToggleButton *b, gpointer u) {
+    gtk_widget_set_sensitive(g_inst_go,
+        gtk_toggle_button_get_active(b) && g_inst_disk[0]);
+}
+static void inst_refresh_disks(void) {
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(g_inst_disks));
+    for (GList *l = kids; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(kids);
+    g_inst_disk[0] = '\0';
+    char *r = aurorad_send("GET", "/system/disks", NULL);
+    char *list = json_str(r, "list");
+    GSList *group = NULL;
+    int n = 0;
+    if (list && *list) {
+        char **lines = g_strsplit(list, "\n", -1);
+        for (int i = 0; lines[i]; i++) {
+            if (!*lines[i]) continue;
+            char **c = g_strsplit(lines[i], "|", 3);
+            if (c[0] && c[1] && c[2]) {
+                char *lbl = g_strdup_printf("%s   %s  ·  %s", c[0], c[1], c[2]);
+                GtkWidget *rb = gtk_radio_button_new_with_label(group, lbl);
+                group = gtk_radio_button_get_group(GTK_RADIO_BUTTON(rb));
+                g_signal_connect(rb, "toggled", G_CALLBACK(inst_disk_toggled),
+                                 g_strdup(c[0]));   /* dev string, lives with widget */
+                gtk_box_pack_start(GTK_BOX(g_inst_disks), rb, FALSE, FALSE, 2);
+                g_free(lbl); n++;
+            }
+            g_strfreev(c);
+        }
+        g_strfreev(lines);
+    }
+    if (!n) {
+        GtkWidget *none = gtk_label_new("No installable disk found.\n"
+            "Add a hard disk to the machine, then reopen this window.");
+        gtk_box_pack_start(GTK_BOX(g_inst_disks), none, FALSE, FALSE, 2);
+    }
+    gtk_widget_show_all(g_inst_disks);
+    g_free(list); g_free(r);
+}
+static gboolean inst_poll(gpointer u) {
+    char *r = aurorad_send("GET", "/system/install-progress", NULL);
+    if (!r) return G_SOURCE_CONTINUE;
+    int pct = json_int(r, "pct");
+    char *stage = json_str(r, "stage");
+    char *err = json_str(r, "error");
+    gboolean done = json_true(r, "done");
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), pct / 100.0);
+    if (err && *err) {
+        char *m = g_strdup_printf("Error: %s", err);
+        gtk_label_set_text(GTK_LABEL(g_inst_status), m); g_free(m);
+        gtk_widget_set_sensitive(g_inst_go, FALSE);
+        g_free(stage); g_free(err); g_free(r); g_inst_timer = 0;
+        return G_SOURCE_REMOVE;
+    }
+    if (done) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), 1.0);
+        gtk_label_set_text(GTK_LABEL(g_inst_status),
+            "Installation complete. Remove the ISO, then restart.");
+        gtk_button_set_label(GTK_BUTTON(g_inst_go), "Restart");
+        gtk_widget_set_sensitive(g_inst_go, TRUE);
+        g_inst_finished = TRUE;
+        g_free(stage); g_free(err); g_free(r); g_inst_timer = 0;
+        return G_SOURCE_REMOVE;
+    }
+    if (stage && *stage) gtk_label_set_text(GTK_LABEL(g_inst_status), stage);
+    g_free(stage); g_free(err); g_free(r);
+    return G_SOURCE_CONTINUE;
+}
+static void inst_go(GtkButton *b, gpointer u) {
+    if (g_inst_finished) { launch("systemctl reboot"); return; }
+    if (!g_inst_disk[0]) return;
+    char body[196];
+    g_snprintf(body, sizeof body, "{\"disk\":\"%s\"}", g_inst_disk);
+    char *r = aurorad_send("POST", "/system/install", body);
+    char *err = json_str(r, "error");
+    if (err && *err) {
+        char *m = g_strdup_printf("Error: %s", err);
+        gtk_label_set_text(GTK_LABEL(g_inst_status), m); g_free(m);
+        g_free(err); g_free(r); return;
+    }
+    g_free(err); g_free(r);
+    gtk_widget_set_sensitive(g_inst_go, FALSE);
+    gtk_widget_set_sensitive(g_inst_gate, FALSE);
+    gtk_label_set_text(GTK_LABEL(g_inst_status), "Starting…");
+    if (!g_inst_timer) g_inst_timer = g_timeout_add(700, inst_poll, NULL);
+}
+static void build_install_win(void) {
+    g_inst = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_widget_set_name(g_inst, "instwin");
+    gtk_window_set_title(GTK_WINDOW(g_inst), "Install AuroraOS");
+    gtk_window_set_default_size(GTK_WINDOW(g_inst), 470, 420);
+    gtk_window_set_resizable(GTK_WINDOW(g_inst), FALSE);
+    g_signal_connect(g_inst, "delete-event",
+                     G_CALLBACK(gtk_widget_hide_on_delete), NULL);
+
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(v, 22); gtk_widget_set_margin_bottom(v, 20);
+    gtk_widget_set_margin_start(v, 26); gtk_widget_set_margin_end(v, 26);
+
+    GtkWidget *title = gtk_label_new("Install AuroraOS");
+    gtk_style_context_add_class(gtk_widget_get_style_context(title), "abt-name");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    GtkWidget *sub = gtk_label_new("Copy AuroraOS onto a disk so it boots without the ISO.");
+    gtk_style_context_add_class(gtk_widget_get_style_context(sub), "abt-desc");
+    gtk_widget_set_halign(sub, GTK_ALIGN_START);
+
+    GtkWidget *pick = gtk_label_new("Install onto:");
+    gtk_widget_set_halign(pick, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(pick, 6);
+    g_inst_disks = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+    g_inst_gate = gtk_check_button_new_with_label(
+        "I understand this erases the entire selected disk.");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_gate), "inst-warn");
+    g_signal_connect(g_inst_gate, "toggled", G_CALLBACK(inst_gate_toggled), NULL);
+    gtk_widget_set_margin_top(g_inst_gate, 4);
+
+    g_inst_bar = gtk_progress_bar_new();
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), 0);
+    g_inst_status = gtk_label_new("Select a disk to continue.");
+    gtk_widget_set_halign(g_inst_status, GTK_ALIGN_START);
+    gtk_label_set_line_wrap(GTK_LABEL(g_inst_status), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_status), "abt-ver");
+
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_halign(row, GTK_ALIGN_END);
+    GtkWidget *quit = gtk_button_new_with_label("Close");
+    g_signal_connect_swapped(quit, "clicked",
+                             G_CALLBACK(gtk_widget_hide), g_inst);
+    g_inst_go = gtk_button_new_with_label("Erase & Install");
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_go), "inst-go");
+    gtk_widget_set_sensitive(g_inst_go, FALSE);
+    g_signal_connect(g_inst_go, "clicked", G_CALLBACK(inst_go), NULL);
+    gtk_box_pack_start(GTK_BOX(row), quit, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), g_inst_go, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(v), title, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), sub, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), pick, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), g_inst_disks, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), g_inst_gate, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), g_inst_bar, FALSE, FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(v), g_inst_status, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(v), row, FALSE, FALSE, 4);
+    gtk_container_add(GTK_CONTAINER(g_inst), v);
+}
+static void am_install(GtkMenuItem *i, gpointer u) {
+    if (!g_inst) build_install_win();
+    if (g_inst_timer) { g_source_remove(g_inst_timer); g_inst_timer = 0; }
+    g_inst_finished = FALSE;
+    inst_refresh_disks();
+    gtk_button_set_label(GTK_BUTTON(g_inst_go), "Erase & Install");
+    gtk_widget_set_sensitive(g_inst_go, FALSE);
+    gtk_widget_set_sensitive(g_inst_gate, TRUE);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_inst_gate), FALSE);
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(g_inst_bar), 0);
+    gtk_label_set_text(GTK_LABEL(g_inst_status), "Select a disk to continue.");
+    gtk_widget_show_all(g_inst);
 }
 static void am_lock(GtkMenuItem *i, gpointer u)     { show_lock(); }
 static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); launch("systemctl reboot"); }
@@ -1624,6 +1812,7 @@ static void build_aurora_menu(void) {
     g_auroramenu = gtk_menu_new();
     struct { const char *label; GCallback cb; } it[] = {
         {"◗    About AuroraOS",         G_CALLBACK(am_about)},
+        {"⬇    Install AuroraOS…",       G_CALLBACK(am_install)},
         {"▤    Enable Persistent Storage", G_CALLBACK(am_persist)},
         {"◔    Lock",                   G_CALLBACK(am_lock)},
         {"↻    Restart",                G_CALLBACK(am_restart)},
