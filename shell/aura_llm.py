@@ -139,12 +139,29 @@ def route(calls, tools, executors):
             actions.append({"cmd": call["cmd"], "args": args, "ran": False})
     return actions, notes
 
+MODEL_DIR = os.environ.get("AURA_MODEL_DIR", "/opt/aura/models")
+
+def model_installed():
+    """True if a .gguf model is on disk. Distinguishes 'still loading' (be
+    patient) from 'never downloaded' (tell the user to run Set up Aura)."""
+    try:
+        return any(f.endswith(".gguf") for f in os.listdir(MODEL_DIR))
+    except OSError:
+        return False
+
+_SETUP_HINT = ('I don\'t have my language model on this machine yet — open the '
+               'Aurora menu and choose "Set up Aura (AI)" to download it '
+               '(~0.8 GB, one time). Until then I can still open apps and '
+               'report system status.')
+
 def heuristic_fallback(user_text, status=None):
     """Deterministic reply when the model is unavailable or produced garbage."""
-    qs = (user_text or "").lower().strip()
+    # Strip punctuation so "hi!", "Hey :)" etc. still match the greeting.
+    qs = re.sub(r"[^a-z0-9' ]+", " ", (user_text or "").lower()).strip()
     status = status or {}
-    if any(qs == g or qs.startswith(g + " ") for g in ("hi", "hello", "hey", "yo", "hiya")):
-        return "Hi! I'm Aura, your on-device assistant. Ask me anything, or tell me to open an app or check the system."
+    if any(qs == g or qs.startswith(g + " ") for g in ("hi", "hello", "hey", "yo", "hiya", "sup")):
+        hello = "Hi! I'm Aura, your on-device assistant. Ask me anything, or tell me to open an app or check the system."
+        return hello if model_installed() else hello + " " + _SETUP_HINT
     if "battery" in qs:
         b = status.get("battery") or {}
         pct = b.get("percent")
@@ -154,8 +171,11 @@ def heuristic_fallback(user_text, status=None):
         return f"Brightness is {status.get('brightness') or 'not controllable on this device'}%."
     if any(k in qs for k in ("off", "shutdown", "power")):
         return "You can shut down or restart from the power controls, or just ask me to."
-    return ("I'm still warming up — the on-device model is loading. In the meantime I "
-            "can open apps, open a terminal, and report system status.")
+    if not model_installed():
+        return _SETUP_HINT
+    return ("I'm still warming up — the on-device model is loading. Give me a few "
+            "seconds and ask again. Meanwhile I can open apps, open a terminal, "
+            "and report system status.")
 
 def _reply_is_bad(reply):
     """True if the text is empty, leaked JSON, or an unfilled prompt placeholder
