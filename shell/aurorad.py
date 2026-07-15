@@ -793,6 +793,15 @@ class H(BaseHTTPRequestHandler):
                                    data.get("user", ""), data.get("pass", "")))
         elif self.path == "/system/unmount-share":
             self._send(unmount_share(data.get("target", "")))
+        elif self.path == "/system/power":
+            # power must run as root: without polkit, systemd denies reboot/
+            # poweroff from the session user (buttons silently did nothing)
+            act = data.get("action")
+            if act in ("poweroff", "reboot"):
+                self._send({"ok": True})
+                subprocess.Popen(["systemctl", act])
+            else:
+                self._send({"error": "bad action"}, 400)
         elif self.path == "/store/remove":
             self._send(store_remove(data.get("id", "")))
         elif self.path == "/brightness":

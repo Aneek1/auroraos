@@ -1857,8 +1857,18 @@ static gboolean inst_poll(gpointer u) {
     g_free(stage); g_free(err); g_free(r);
     return G_SOURCE_CONTINUE;
 }
+/* power actions go through the root system service — the session user can't
+ * systemctl reboot without polkit (the button silently did nothing) */
+static void power_action(const char *act) {
+    char body[64];
+    g_snprintf(body, sizeof body, "{\"action\":\"%s\"}", act);
+    char *r = aurorad_send("POST", "/system/power", body);
+    if (!r) launch(g_str_equal(act, "reboot") ? "systemctl reboot"
+                                              : "systemctl poweroff");
+    g_free(r);
+}
 static void inst_go(GtkButton *b, gpointer u) {
-    if (g_inst_finished) { launch("systemctl reboot"); return; }
+    if (g_inst_finished) { power_action("reboot"); return; }
     if (!g_inst_disk[0]) return;
     char body[196];
     g_snprintf(body, sizeof body, "{\"disk\":\"%s\"}", g_inst_disk);
@@ -2129,8 +2139,8 @@ static void am_aura_setup(GtkMenuItem *i, gpointer u) {
     gtk_widget_show_all(g_aura_win);
 }
 static void am_lock(GtkMenuItem *i, gpointer u)     { show_lock(); }
-static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); launch("systemctl reboot"); }
-static void am_shutdown(GtkMenuItem *i, gpointer u) { aurora_toast("⏻", "Shutting down…"); launch("systemctl poweroff"); }
+static void am_restart(GtkMenuItem *i, gpointer u)  { aurora_toast("↻", "Restarting…"); power_action("reboot"); }
+static void am_shutdown(GtkMenuItem *i, gpointer u) { aurora_toast("⏻", "Shutting down…"); power_action("poweroff"); }
 static void on_logo_clicked(GtkButton *b, gpointer u) {
     if (g_auroramenu)
         gtk_menu_popup_at_widget(GTK_MENU(g_auroramenu), GTK_WIDGET(b),

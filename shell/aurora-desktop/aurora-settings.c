@@ -392,8 +392,18 @@ static GtkWidget *build_network(void) {
 }
 
 /* ---- Power ---- */
-static void pw_restart(GtkButton *b, gpointer u)  { run_async("systemctl reboot"); }
-static void pw_shutdown(GtkButton *b, gpointer u) { run_async("systemctl poweroff"); }
+/* via the root system service — the session user can't systemctl reboot
+ * without polkit */
+static void pw_restart(GtkButton *b, gpointer u)  {
+    char *r = sysd_send("POST", "/system/power", "{\"action\":\"reboot\"}");
+    if (!r) run_async("systemctl reboot");
+    g_free(r);
+}
+static void pw_shutdown(GtkButton *b, gpointer u) {
+    char *r = sysd_send("POST", "/system/power", "{\"action\":\"poweroff\"}");
+    if (!r) run_async("systemctl poweroff");
+    g_free(r);
+}
 static GtkWidget *build_power(void) {
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
     gtk_box_pack_start(GTK_BOX(v), page_title("Power"), FALSE, FALSE, 0);
