@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/vfs.h>
 
 /* ----- app model ----- */
 typedef struct { char *name, *exec, *icon; } App;
@@ -2211,9 +2212,24 @@ int main(int argc, char **argv) {
         GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     scale_init();   /* size everything from the real monitor geometry */
 
-    gboolean installer_mode = (g_getenv("AURORA_INSTALLER") != NULL);
-    for (int i = 1; i < argc; i++)
+    /* Installer-first ONLY on the live image. Decide from ground truth — the
+     * root filesystem: the live ISO runs on an overlay/tmpfs root, an
+     * installed disk on a real ext4. This replaces the fragile
+     * autostart/marker heuristics that let the installer cover the desktop. */
+    gboolean installer_mode = FALSE;
+    struct statfs rst;
+    if (statfs("/", &rst) == 0) {
+        const unsigned long OVERLAY = 0x794c7630, TMPFS = 0x01021994,
+                            RAMFS = 0x858458f6;
+        if (rst.f_type == OVERLAY || rst.f_type == TMPFS || rst.f_type == RAMFS)
+            installer_mode = TRUE;
+    }
+    if (g_getenv("AURORA_INSTALLER")) installer_mode = TRUE;   /* force on */
+    if (g_getenv("AURORA_DESKTOP"))   installer_mode = FALSE;  /* force off */
+    for (int i = 1; i < argc; i++) {
         if (!g_strcmp0(argv[i], "--installer")) installer_mode = TRUE;
+        if (!g_strcmp0(argv[i], "--desktop"))   installer_mode = FALSE;
+    }
     if (installer_mode) {
         /* Live ISO: show only the installer-first screen (no desktop). */
         build_wallpaper();          /* aurora gradient behind the card */

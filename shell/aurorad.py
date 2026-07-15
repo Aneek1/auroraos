@@ -548,15 +548,16 @@ def _do_install(disk):
         rpart = _partuuid(root)
         with open(T + "/boot/grub/grub.cfg", "w") as f:
             f.write(
-                "set default=0\nset timeout=2\n"
+                "set default=0\nset timeout=5\n"
                 "insmod part_gpt\ninsmod ext2\ninsmod all_video\n"
                 "set gfxpayload=keep\n\n"
-                'menuentry "AuroraOS 1.0 — daybreak" {\n'
+                'menuentry "AuroraOS" {\n'
                 "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw quiet loglevel=3 "
-                "vt.global_cursor_default=0 video=1920x1080\n}\n\n"
-                'menuentry "AuroraOS (verbose / rescue)" {\n'
-                "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw "
-                "systemd.unit=multi-user.target\n}\n" % (rpart, rpart))
+                "systemd.show_status=auto vt.global_cursor_default=0 "
+                "video=1920x1080\n}\n\n"
+                'menuentry "AuroraOS (safe mode — show boot messages)" {\n'
+                "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw video=1920x1080\n}\n"
+                % (rpart, rpart))
 
         _ist("Writing fstab", 96)
         euuid = _uuid(esp)

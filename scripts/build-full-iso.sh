@@ -18,19 +18,17 @@ chroot "$LFS" /usr/bin/env -i PATH=/usr/bin:/bin /bin/bash -c \
    wayland-scanner private-code   /tmp/ftl.xml /tmp/wlr-foreign-toplevel-management-unstable-v1-protocol.c && \
    cc /tmp/aurora-shell.c /tmp/wlr-foreign-toplevel-management-unstable-v1-protocol.c -I/tmp -O2 -o /usr/bin/aurora-shell $(pkg-config --cflags --libs gtk+-3.0 gtk-layer-shell-0 wayland-client) -lm && echo "shell: $(stat -c %s /usr/bin/aurora-shell) bytes"'
 
-echo "== labwc autostart: installer-first on live, desktop on installed disk =="
+echo "== labwc autostart =="
+# aurora-shell self-selects installer-vs-desktop from the root filesystem
+# type (overlay/tmpfs live -> installer, ext4 disk -> desktop), so the
+# autostart is plain unconditional lines.
+rm -f /mnt/lfs/usr/bin/aurora-shell-select /mnt/lfs/etc/aurora-installed
 install -d /mnt/lfs/etc/xdg/labwc
 cat > /mnt/lfs/etc/xdg/labwc/autostart <<'EOF'
 # AuroraOS session autostart (labwc)
 /usr/lib/aurora/aura-llm-launch &
 /usr/bin/python3 /usr/lib/aurora/aurorad &
-# Live ISO (root is an overlay) boots the installer-first screen; an installed
-# disk (ext4 root) boots straight to the desktop.
-if [ "$(findmnt -no FSTYPE / 2>/dev/null)" = overlay ]; then
-  /usr/bin/aurora-shell --installer &
-else
-  /usr/bin/aurora-shell &
-fi
+/usr/bin/aurora-shell &
 EOF
 
 echo "== re-squash (excluding the LLM model + build toolchain to slim the ISO) =="
@@ -40,7 +38,7 @@ echo "== re-squash (excluding the LLM model + build toolchain to slim the ISO) =
 mksquashfs "$LFS" "$ISO/live/rootfs.squashfs" -comp zstd -noappend \
   -e boot/efi -e sources -e proc -e sys -e dev -e run -e tmp -e aurora \
   -e opt/aura/models -e usr/libexec/gcc -e usr/bin/lto-dump -e opt/cmake \
-  -e usr/include
+  -e usr/include -wildcards -e 'core.*'
 
 echo "== grub-mkimage + ESP + xorriso =="
 cat > "$STAGE/embed.cfg" <<'EOF'
