@@ -10,8 +10,13 @@
 #include <gtk/gtk.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 /* ---- tiny helpers ---- */
 static char *slurp(const char *path) {
@@ -154,10 +159,106 @@ static GtkWidget *build_sound(void) {
     return page_scroll(v);
 }
 
-/* ---- Network ---- */
-static GtkWidget *build_network(void) {
-    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+/* ---- Network ----
+ * Real interface details (type, state, IPv4, MAC) instead of raw
+ * operstate, plus network drives (SMB) via the root aurorad-system
+ * service on 127.0.0.1:7213. */
+static char *sysd_send(const char *method, const char *path, const char *body) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NULL;
+    struct sockaddr_in sa = {0};
+    sa.sin_family = AF_INET; sa.sin_port = htons(7213);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    if (connect(fd, (struct sockaddr *)&sa, sizeof sa) < 0) { close(fd); return NULL; }
+    char *req = body
+        ? g_strdup_printf("%s %s HTTP/1.0\r\nHost: x\r\nContent-Type: application/json\r\n"
+                          "Content-Length: %zu\r\n\r\n%s", method, path, strlen(body), body)
+        : g_strdup_printf("%s %s HTTP/1.0\r\nHost: x\r\n\r\n", method, path);
+    ssize_t off = 0, len = (ssize_t)strlen(req);
+    while (off < len) { ssize_t n = write(fd, req + off, len - off); if (n <= 0) break; off += n; }
+    g_free(req);
+    GString *r = g_string_new(""); char buf[4096]; ssize_t n;
+    while ((n = read(fd, buf, sizeof buf)) > 0) g_string_append_len(r, buf, n);
+    close(fd);
+    char *hdr = strstr(r->str, "\r\n\r\n");
+    char *out = hdr ? g_strdup(hdr + 4) : NULL;
+    g_string_free(r, TRUE);
+    return out;
+}
+static char *njson_str(const char *json, const char *key) {
+    if (!json) return NULL;
+    char *pat = g_strdup_printf("\"%s\"", key);
+    char *p = strstr(json, pat); g_free(pat);
+    if (!p) return NULL;
+    p = strchr(p, ':'); if (!p) return NULL; p++;
+    while (*p == ' ' || *p == '"') p++;
+    GString *out = g_string_new("");
+    for (; *p && *p != '"'; p++) {
+        if (*p == '\\' && p[1]) { p++; g_string_append_c(out, *p == 'n' ? '\n' : *p); }
+        else g_string_append_c(out, *p);
+    }
+    return g_string_free(out, FALSE);
+}
+static char *iface_ipv4(const char *ifn) {
+    struct ifaddrs *ifa = NULL, *p;
+    char *ret = NULL;
+    if (getifaddrs(&ifa) < 0) return NULL;
+    for (p = ifa; p; p = p->ifa_next) {
+        if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
+        if (strcmp(p->ifa_name, ifn)) continue;
+        char b[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &((struct sockaddr_in *)p->ifa_addr)->sin_addr, b, sizeof b);
+        ret = g_strdup(b);
+        break;
+    }
+    freeifaddrs(ifa);
+    return ret;
+}
+static GtkWidget *g_net_page = NULL;      /* rebuilt in place on refresh */
+static void net_fill(GtkWidget *v);
+static void net_refresh(GtkButton *b, gpointer u) {
+    (void)b; (void)u;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(g_net_page));
+    for (GList *l = kids; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(kids);
+    net_fill(g_net_page);
+    gtk_widget_show_all(g_net_page);
+}
+static void share_disconnect(GtkButton *b, gpointer target) {
+    char *body = g_strdup_printf("{\"target\":\"%s\"}", (char *)target);
+    char *r = sysd_send("POST", "/system/unmount-share", body);
+    g_free(body); g_free(r);
+    net_refresh(NULL, NULL);
+}
+static GtkWidget *g_sh_host, *g_sh_share, *g_sh_user, *g_sh_pass, *g_sh_status;
+static void share_connect(GtkButton *b, gpointer u) {
+    (void)b; (void)u;
+    const char *h = gtk_entry_get_text(GTK_ENTRY(g_sh_host));
+    const char *s = gtk_entry_get_text(GTK_ENTRY(g_sh_share));
+    const char *us = gtk_entry_get_text(GTK_ENTRY(g_sh_user));
+    const char *pw = gtk_entry_get_text(GTK_ENTRY(g_sh_pass));
+    char *eh = g_strescape(h, ""), *es = g_strescape(s, "");
+    char *eu = g_strescape(us, ""), *ep = g_strescape(pw, "");
+    char *body = g_strdup_printf(
+        "{\"host\":\"%s\",\"share\":\"%s\",\"user\":\"%s\",\"pass\":\"%s\"}",
+        eh, es, eu, ep);
+    g_free(eh); g_free(es); g_free(eu); g_free(ep);
+    gtk_label_set_text(GTK_LABEL(g_sh_status), "Connecting…");
+    char *r = sysd_send("POST", "/system/mount-share", body);
+    g_free(body);
+    char *msg = njson_str(r, "error");
+    if (!msg) msg = njson_str(r, "message");
+    gtk_label_set_text(GTK_LABEL(g_sh_status),
+        msg ? msg : (r ? "Done." : "System service unavailable."));
+    g_free(msg);
+    if (r && strstr(r, "\"ok\"")) net_refresh(NULL, NULL);
+    g_free(r);
+}
+static void net_fill(GtkWidget *v) {
     gtk_box_pack_start(GTK_BOX(v), page_title("Network"), FALSE, FALSE, 0);
+
+    /* interfaces */
+    gboolean have_wifi = FALSE;
     GtkWidget *c = card();
     GDir *d = g_dir_open("/sys/class/net", 0, NULL);
     int any = 0;
@@ -165,21 +266,127 @@ static GtkWidget *build_network(void) {
         while ((ifn = g_dir_read_name(d))) {
             if (!strcmp(ifn, "lo")) continue;
             char p[256];
+            snprintf(p, sizeof p, "/sys/class/net/%s/wireless", ifn);
+            gboolean wifi = g_file_test(p, G_FILE_TEST_IS_DIR);
+            if (wifi) have_wifi = TRUE;
             snprintf(p, sizeof p, "/sys/class/net/%s/operstate", ifn);
             char *st = slurp(p);
-            add_kv(c, ifn, st ? st : "unknown"); g_free(st); any = 1;
+            snprintf(p, sizeof p, "/sys/class/net/%s/address", ifn);
+            char *mac = slurp(p);
+            char *ip = iface_ipv4(ifn);
+            char *k = g_strdup_printf("%s  (%s)", wifi ? "Wi-Fi" : "Wired · Ethernet", ifn);
+            char *val;
+            if (st && !strcmp(st, "up"))
+                val = g_strdup_printf("Connected%s%s", ip ? " · " : "", ip ? ip : "");
+            else if (st && !strcmp(st, "down"))
+                val = g_strdup(wifi ? "Not connected" : "Cable unplugged");
+            else
+                val = g_strdup(st ? st : "unknown");
+            add_kv(c, k, val);
+            if (mac) add_kv(c, "    MAC", mac);
+            g_free(k); g_free(val); g_free(st); g_free(mac); g_free(ip);
+            any = 1;
         }
         g_dir_close(d);
     }
-    if (!any) add_kv(c, "Interfaces", "none");
+    if (!any) add_kv(c, "Interfaces", "none detected");
     gtk_box_pack_start(GTK_BOX(v), c, FALSE, FALSE, 0);
-    GtkWidget *note = gtk_label_new("Wi-Fi management is coming to AuroraOS. "
-        "Wired/NAT networking is active by default in the VM.");
+
+    /* Wi-Fi: honest status. In a VM there is no radio to scan. */
+    GtkWidget *note = gtk_label_new(have_wifi
+        ? "Wi-Fi adapter detected. Network scanning arrives with the wireless "
+          "stack (wpa_supplicant) in an upcoming build."
+        : "This machine has no Wi-Fi adapter — a virtual machine exposes a "
+          "wired Ethernet connection only (shown above, already connected). "
+          "Wi-Fi selection appears automatically on hardware with wireless.");
     gtk_widget_set_halign(note, GTK_ALIGN_START);
     gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
     gtk_style_context_add_class(gtk_widget_get_style_context(note), "note");
     gtk_box_pack_start(GTK_BOX(v), note, FALSE, FALSE, 0);
-    return page_scroll(v);
+
+    /* network drives */
+    gtk_box_pack_start(GTK_BOX(v), page_title("Network Drives"), FALSE, FALSE, 0);
+    GtkWidget *sc2 = card();
+    char *r = sysd_send("GET", "/system/shares", NULL);
+    char *list = njson_str(r, "list");
+    int nsh = 0;
+    if (list && *list) {
+        char **lines = g_strsplit(list, "\n", -1);
+        for (int i = 0; lines[i]; i++) {
+            if (!*lines[i]) continue;
+            char **f = g_strsplit(lines[i], "|", 3);
+            if (f[0] && f[1]) {
+                GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+                gtk_style_context_add_class(gtk_widget_get_style_context(row), "row");
+                GtkWidget *kl = gtk_label_new(f[1]);      /* //server/share */
+                gtk_widget_set_halign(kl, GTK_ALIGN_START);
+                gtk_style_context_add_class(gtk_widget_get_style_context(kl), "k");
+                GtkWidget *vl = gtk_label_new(f[0]);      /* mount point */
+                gtk_label_set_ellipsize(GTK_LABEL(vl), PANGO_ELLIPSIZE_MIDDLE);
+                gtk_widget_set_hexpand(vl, TRUE);
+                gtk_style_context_add_class(gtk_widget_get_style_context(vl), "v");
+                GtkWidget *db = gtk_button_new_with_label("Disconnect");
+                g_signal_connect(db, "clicked", G_CALLBACK(share_disconnect),
+                                 g_strdup(f[0]));
+                gtk_box_pack_start(GTK_BOX(row), kl, FALSE, FALSE, 0);
+                gtk_box_pack_start(GTK_BOX(row), vl, TRUE, TRUE, 0);
+                gtk_box_pack_start(GTK_BOX(row), db, FALSE, FALSE, 0);
+                gtk_box_pack_start(GTK_BOX(sc2), row, FALSE, FALSE, 0);
+                nsh++;
+            }
+            g_strfreev(f);
+        }
+        g_strfreev(lines);
+    }
+    if (!nsh) add_kv(sc2, "Connected drives", "none");
+    g_free(list); g_free(r);
+    gtk_box_pack_start(GTK_BOX(v), sc2, FALSE, FALSE, 0);
+
+    /* connect form */
+    GtkWidget *fc = card();
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
+    gtk_widget_set_margin_top(grid, 10); gtk_widget_set_margin_bottom(grid, 10);
+    gtk_widget_set_margin_start(grid, 14); gtk_widget_set_margin_end(grid, 14);
+    const char *labels[] = {"Server", "Share", "Username", "Password"};
+    const char *hints[]  = {"fileserver01 or 192.168.1.20", "Projects",
+                            "optional", "optional"};
+    GtkWidget **ents[] = {&g_sh_host, &g_sh_share, &g_sh_user, &g_sh_pass};
+    for (int i = 0; i < 4; i++) {
+        GtkWidget *l = gtk_label_new(labels[i]);
+        gtk_widget_set_halign(l, GTK_ALIGN_START);
+        gtk_style_context_add_class(gtk_widget_get_style_context(l), "k");
+        *ents[i] = gtk_entry_new();
+        gtk_entry_set_placeholder_text(GTK_ENTRY(*ents[i]), hints[i]);
+        gtk_widget_set_hexpand(*ents[i], TRUE);
+        if (i == 3) gtk_entry_set_visibility(GTK_ENTRY(*ents[i]), FALSE);
+        gtk_grid_attach(GTK_GRID(grid), l, 0, i, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), *ents[i], 1, i, 1, 1);
+    }
+    GtkWidget *cb = gtk_button_new_with_label("Connect");
+    gtk_style_context_add_class(gtk_widget_get_style_context(cb), "pw");
+    g_signal_connect(cb, "clicked", G_CALLBACK(share_connect), NULL);
+    gtk_grid_attach(GTK_GRID(grid), cb, 1, 4, 1, 1);
+    g_sh_status = gtk_label_new("Connect to a Windows/SMB share — it appears "
+                                "as a folder under /media in Files.");
+    gtk_widget_set_halign(g_sh_status, GTK_ALIGN_START);
+    gtk_label_set_line_wrap(GTK_LABEL(g_sh_status), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(g_sh_status), "note");
+    gtk_grid_attach(GTK_GRID(grid), g_sh_status, 0, 5, 2, 1);
+    gtk_box_pack_start(GTK_BOX(fc), grid, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(v), fc, FALSE, FALSE, 0);
+
+    /* refresh */
+    GtkWidget *rb = gtk_button_new_with_label("⟳ Refresh");
+    gtk_widget_set_halign(rb, GTK_ALIGN_START);
+    g_signal_connect(rb, "clicked", G_CALLBACK(net_refresh), NULL);
+    gtk_box_pack_start(GTK_BOX(v), rb, FALSE, FALSE, 0);
+}
+static GtkWidget *build_network(void) {
+    g_net_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    net_fill(g_net_page);
+    return page_scroll(g_net_page);
 }
 
 /* ---- Power ---- */

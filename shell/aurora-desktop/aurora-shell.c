@@ -69,8 +69,8 @@ static GtkWidget *g_taskbar = NULL;      /* dock box: one button per running win
 typedef struct {
     struct zwlr_foreign_toplevel_handle_v1 *handle;
     char *title, *app_id;
-    gboolean activated;
-    GtkWidget *btn, *lbl;
+    gboolean activated, ico_done;
+    GtkWidget *btn, *lbl, *hbox;
 } Toplevel;
 static GList *g_toplevels = NULL;        /* Toplevel* */
 
@@ -642,7 +642,7 @@ static void rebuild_pinbox(void) {
         gtk_style_context_add_class(gtk_widget_get_style_context(b), "dbtn");
         gtk_widget_set_focus_on_click(b, FALSE);
         gtk_widget_set_tooltip_text(b, p->name);
-        gtk_container_add(GTK_CONTAINER(b), icon_widget(p->icon, 26, "▣"));
+        gtk_container_add(GTK_CONTAINER(b), icon_widget(p->icon, S(26), "▣"));
         g_signal_connect_swapped(b, "clicked", G_CALLBACK(launch), p->exec);
         g_signal_connect(b, "button-press-event", G_CALLBACK(pin_btn_press), p->exec);
         gtk_box_pack_start(GTK_BOX(g_pinbox), b, FALSE, FALSE, 0);
@@ -652,9 +652,40 @@ static void rebuild_pinbox(void) {
 
 /* ================= taskbar: running windows (wlr-foreign-toplevel) ========= */
 static void update_task_button(Toplevel *tl) {
-    const char *t = (tl->title && *tl->title) ? tl->title
-                  : (tl->app_id && *tl->app_id) ? tl->app_id : "window";
+    /* Unnamed toplevels (no title, no app id) render as blank dead space in
+     * the dock — keep the button parked until the window identifies itself. */
+    gboolean named = (tl->title && *tl->title) || (tl->app_id && *tl->app_id);
+    if (!named) { if (tl->btn) gtk_widget_hide(tl->btn); return; }
+    const char *t = (tl->title && *tl->title) ? tl->title : tl->app_id;
     gtk_label_set_text(GTK_LABEL(tl->lbl), t);
+    if (!tl->ico_done && tl->app_id && *tl->app_id) {
+        /* real app icon on the taskbar chip: theme icon named like the
+         * app id, else the matching launcher entry's icon */
+        GtkWidget *ico = NULL;
+        if (gtk_icon_theme_has_icon(gtk_icon_theme_get_default(), tl->app_id)) {
+            ico = gtk_image_new_from_icon_name(tl->app_id, GTK_ICON_SIZE_MENU);
+            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(20));
+        } else {
+            char *want = g_ascii_strdown(tl->app_id, -1);
+            for (GList *l = g_apps; l && !ico; l = l->next) {
+                App *a = l->data;
+                char *nm = g_ascii_strdown(a->name, -1);
+                char *ex = g_ascii_strdown(a->exec ? a->exec : "", -1);
+                if (strstr(ex, want) || strstr(nm, want))
+                    if (a->icon && *a->icon)
+                        ico = icon_widget(a->icon, S(20), NULL);
+                g_free(nm); g_free(ex);
+            }
+            g_free(want);
+        }
+        if (ico) {
+            gtk_box_pack_start(GTK_BOX(tl->hbox), ico, FALSE, FALSE, 0);
+            gtk_box_reorder_child(GTK_BOX(tl->hbox), ico, 0);
+        }
+        tl->ico_done = TRUE;
+    }
+    if (!gtk_widget_get_parent(tl->btn) && g_taskbar)
+        gtk_box_pack_start(GTK_BOX(g_taskbar), tl->btn, FALSE, FALSE, 0);
     GtkStyleContext *sc = gtk_widget_get_style_context(tl->btn);
     if (tl->activated) gtk_style_context_add_class(sc, "active");
     else               gtk_style_context_remove_class(sc, "active");
@@ -679,7 +710,7 @@ static void ftl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct
 static void ftl_done(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) { (void)h; update_task_button((Toplevel *)d); }
 static void ftl_closed(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
     Toplevel *tl = d;
-    if (tl->btn) gtk_widget_destroy(tl->btn);
+    if (tl->btn) { gtk_widget_destroy(tl->btn); g_object_unref(tl->btn); }
     zwlr_foreign_toplevel_handle_v1_destroy(h);
     g_toplevels = g_list_remove(g_toplevels, tl);
     g_free(tl->title); g_free(tl->app_id); g_free(tl);
@@ -705,10 +736,12 @@ static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
     tl->lbl = gtk_label_new("…");
     gtk_label_set_ellipsize(GTK_LABEL(tl->lbl), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(tl->lbl), 16);
-    gtk_container_add(GTK_CONTAINER(tl->btn), tl->lbl);
+    tl->hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(tl->hbox), tl->lbl, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(tl->btn), tl->hbox);
     g_signal_connect(tl->btn, "clicked", G_CALLBACK(on_task_clicked), tl);
+    g_object_ref_sink(tl->btn);   /* parked until the toplevel gets a name */
     zwlr_foreign_toplevel_handle_v1_add_listener(h, &ftl_handle_listener, tl);
-    if (g_taskbar) gtk_box_pack_start(GTK_BOX(g_taskbar), tl->btn, FALSE, FALSE, 0);
     g_toplevels = g_list_append(g_toplevels, tl);
 }
 static void ftl_finished(void *d, struct zwlr_foreign_toplevel_manager_v1 *m) { (void)d;(void)m; }
@@ -875,7 +908,7 @@ static void populate_launcher(void) {
         GtkWidget *b = gtk_button_new();
         gtk_style_context_add_class(gtk_widget_get_style_context(b), "applaunch");
         GtkWidget *bv = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-        GtkWidget *ic = icon_widget(a->icon, 44, "◈");
+        GtkWidget *ic = icon_widget(a->icon, S(44), "◈");
         GtkWidget *nm = gtk_label_new(a->name);
         gtk_label_set_ellipsize(GTK_LABEL(nm), PANGO_ELLIPSIZE_END);
         gtk_label_set_max_width_chars(GTK_LABEL(nm), 12);
@@ -1597,6 +1630,16 @@ static gboolean draw_aurora(GtkWidget *w, cairo_t *cr, gpointer u) {
         cairo_set_source(cr, pt); cairo_paint(cr);
         cairo_pattern_destroy(pt);
     }
+    /* The radial glows are wider than the band is tall, so without this they
+     * hit the window edge at high alpha and render as a hard stripe. Fade the
+     * whole band's alpha to 0 at the bottom so it melts into the wallpaper. */
+    cairo_set_operator(cr, CAIRO_OPERATOR_DEST_IN);
+    cairo_pattern_t *fade = cairo_pattern_create_linear(0, 0, 0, H);
+    cairo_pattern_add_color_stop_rgba(fade, 0.00, 1, 1, 1, 1.00);
+    cairo_pattern_add_color_stop_rgba(fade, 0.45, 1, 1, 1, 0.70);
+    cairo_pattern_add_color_stop_rgba(fade, 1.00, 1, 1, 1, 0.00);
+    cairo_set_source(cr, fade); cairo_paint(cr);
+    cairo_pattern_destroy(fade);
     return FALSE;
 }
 static gboolean tick_aurora(gpointer canvas) { g_aurora_phase++; gtk_widget_queue_draw(GTK_WIDGET(canvas)); return G_SOURCE_CONTINUE; }

@@ -593,6 +593,67 @@ def install_progress():
     with INSTALL_LOCK:
         return dict(INSTALL)
 
+# ----- network drives (SMB via kernel cifs) ------------------------------
+# Mounts //host/share at /media/<name> so the Files app sees it as a normal
+# folder. No cifs-utils needed: we resolve the hostname here and pass ip=
+# so the raw mount(2) path works. uid/gid map the files to the aurora user.
+def _safe_mount_name(host, share):
+    return re.sub(r"[^A-Za-z0-9._-]", "_", "%s_%s" % (host, share))[:64]
+
+def list_shares():
+    out = []
+    try:
+        with open("/proc/mounts") as f:
+            for ln in f:
+                parts = ln.split()
+                if len(parts) >= 3 and parts[2] in ("cifs", "smb3", "nfs", "nfs4"):
+                    out.append({"source": parts[0], "target": parts[1],
+                                "fstype": parts[2]})
+    except OSError:
+        pass
+    return out
+
+def mount_share(host, share, user, pw):
+    import socket as _s
+    host = (host or "").strip().lstrip("\\/")
+    share = (share or "").strip().strip("\\/")
+    if not host or not share:
+        return {"error": "Server and share name are both required."}
+    try:
+        ip = _s.gethostbyname(host)
+    except OSError:
+        return {"error": "Cannot resolve server '%s' — check the name and "
+                         "that the network is up." % host}
+    tgt = "/media/" + _safe_mount_name(host, share)
+    if any(m["target"] == tgt for m in list_shares()):
+        return {"ok": True, "already": True, "target": tgt,
+                "message": "Already connected at %s" % tgt}
+    os.makedirs(tgt, exist_ok=True)
+    opts = "ip=%s,uid=999,gid=998,iocharset=utf8" % ip
+    opts += ",username=%s" % (user or "guest")
+    opts += (",password=%s" % pw) if pw else ",guest"
+    r = subprocess.run(["mount", "-t", "cifs", "//%s/%s" % (host, share), tgt,
+                        "-o", opts], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True)
+    if r.returncode != 0:
+        try: os.rmdir(tgt)
+        except OSError: pass
+        tail = (r.stdout or "").strip()[-220:]
+        return {"error": "Mount failed: %s" % (tail or "rc=%d" % r.returncode)}
+    return {"ok": True, "target": tgt,
+            "message": "Connected — open %s in Files." % tgt}
+
+def unmount_share(target):
+    if not target or not target.startswith("/media/"):
+        return {"error": "bad target"}
+    r = subprocess.run(["umount", target], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True)
+    if r.returncode != 0:
+        return {"error": (r.stdout or "").strip()[-200:] or "umount failed"}
+    try: os.rmdir(target)
+    except OSError: pass
+    return {"ok": True}
+
 # ----- Aura model download (post-install) -------------------------------
 # The ISO ships without the LLM model to stay small. Once installed and online,
 # Aura downloads a ~0.8 GB model on demand; aura-llm-launch then serves it.
@@ -707,6 +768,11 @@ class H(BaseHTTPRequestHandler):
             self._send(install_progress())
         elif url.path == "/system/aura-status":
             self._send(aura_status())
+        elif url.path == "/system/shares":
+            sh = list_shares()
+            self._send({"shares": sh,
+                        "list": "\n".join("%s|%s|%s" % (m["target"], m["source"], m["fstype"])
+                                          for m in sh)})
         else:
             self._send({"error": "not found"}, 404)
 
@@ -722,6 +788,11 @@ class H(BaseHTTPRequestHandler):
             self._send(install_start(data.get("disk", "")))
         elif self.path == "/system/aura-setup":
             self._send(aura_setup_start())
+        elif self.path == "/system/mount-share":
+            self._send(mount_share(data.get("host", ""), data.get("share", ""),
+                                   data.get("user", ""), data.get("pass", "")))
+        elif self.path == "/system/unmount-share":
+            self._send(unmount_share(data.get("target", "")))
         elif self.path == "/store/remove":
             self._send(store_remove(data.get("id", "")))
         elif self.path == "/brightness":
