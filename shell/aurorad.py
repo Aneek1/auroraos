@@ -483,6 +483,13 @@ def _uuid(dev):
     return subprocess.check_output(
         ["blkid", "-s", "UUID", "-o", "value", dev], text=True).strip()
 
+def _partuuid(dev):
+    # For root= on the kernel command line: a raw kernel (no initramfs) can
+    # only resolve PARTUUID=, not filesystem UUID= (that needs userspace) —
+    # root=UUID= panics with "VFS: unable to mount root fs".
+    return subprocess.check_output(
+        ["blkid", "-s", "PARTUUID", "-o", "value", dev], text=True).strip()
+
 def _run(cmd, **kw):
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
                    stderr=subprocess.STDOUT, **kw)
@@ -538,17 +545,18 @@ def _do_install(disk):
 
         _ist("Writing boot config", 92)
         ruuid = _uuid(root)
+        rpart = _partuuid(root)
         with open(T + "/boot/grub/grub.cfg", "w") as f:
             f.write(
                 "set default=0\nset timeout=2\n"
                 "insmod part_gpt\ninsmod ext2\ninsmod all_video\n"
                 "set gfxpayload=keep\n\n"
                 'menuentry "AuroraOS 1.0 — daybreak" {\n'
-                "  linux /boot/vmlinuz-aurora root=UUID=%s rw quiet loglevel=3 "
+                "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw quiet loglevel=3 "
                 "vt.global_cursor_default=0 video=1920x1080\n}\n\n"
                 'menuentry "AuroraOS (verbose / rescue)" {\n'
-                "  linux /boot/vmlinuz-aurora root=UUID=%s rw "
-                "systemd.unit=multi-user.target\n}\n" % (ruuid, ruuid))
+                "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw "
+                "systemd.unit=multi-user.target\n}\n" % (rpart, rpart))
 
         _ist("Writing fstab", 96)
         euuid = _uuid(esp)
