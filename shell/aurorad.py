@@ -548,12 +548,14 @@ def _do_install(disk):
         rpart = _partuuid(root)
         with open(T + "/boot/grub/grub.cfg", "w") as f:
             f.write(
-                "set default=0\nset timeout=5\n"
+                # macOS-style silent boot: no menu drawn (ESC during the 1s
+                # window opens it — safe mode lives there), no systemd status.
+                "set default=0\nset timeout=1\nset timeout_style=hidden\n"
                 "insmod part_gpt\ninsmod ext2\ninsmod all_video\n"
                 "set gfxpayload=keep\n\n"
                 'menuentry "AuroraOS" {\n'
                 "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw quiet loglevel=3 "
-                "systemd.show_status=auto vt.global_cursor_default=0 "
+                "systemd.show_status=0 udev.log_level=3 vt.global_cursor_default=0 "
                 "video=1920x1080\n}\n\n"
                 'menuentry "AuroraOS (safe mode — show boot messages)" {\n'
                 "  linux /boot/vmlinuz-aurora root=PARTUUID=%s rw video=1920x1080\n}\n"

@@ -60,10 +60,27 @@ chmod +x "$IR/init"
 echo "== 3/4 grub config =="
 cp "$LFS/boot/vmlinuz-aurora" "$WORK/iso/boot/"
 cat > "$WORK/iso/boot/grub/grub.cfg" <<EOF
-set default=0
-set timeout=3
-menuentry "AuroraOS ${DISTRO_VERSION} — live" {
-  linux /boot/vmlinuz-aurora quiet loglevel=3 vt.global_cursor_default=0 video=1920x1080
+insmod search_label
+insmod chain
+# Hand off to an installed AuroraOS when one exists (its ESP is labelled
+# "EFI" by the installer). VirtualBox EFI — and many real firmwares — insist
+# on booting removable media first, so without this the attached ISO/USB
+# hijacks every reboot. The live/installer entry stays in the menu for
+# reinstalls; it is only the default on a blank machine.
+if search --no-floppy --label EFI --set=esp; then
+  set default=installed
+else
+  set default=live
+fi
+# Silent, macOS-style boot: nothing is drawn; hold/press ESC within 2s to
+# open this menu (e.g. to reinstall over an existing system).
+set timeout=2
+set timeout_style=hidden
+menuentry "AuroraOS (installed system)" --id installed {
+  chainloader (\$esp)/EFI/BOOT/BOOTX64.EFI
+}
+menuentry "AuroraOS ${DISTRO_VERSION} — live / installer" --id live {
+  linux /boot/vmlinuz-aurora quiet loglevel=3 systemd.show_status=0 udev.log_level=3 vt.global_cursor_default=0 video=1920x1080
   initrd /boot/initramfs.gz
 }
 EOF

@@ -48,7 +48,7 @@ configfile /boot/grub/grub.cfg
 EOF
 chroot "$LFS" /usr/bin/env -i PATH=/usr/bin:/bin \
   grub-mkimage -O x86_64-efi -p /boot/grub -c /tmp/isobuild/embed.cfg -o /tmp/isobuild/bootx64.efi \
-  normal linux boot configfile search search_fs_file iso9660 fat part_gpt part_msdos all_video efi_gop efi_uga terminal echo test sleep ls cat halt reboot
+  normal linux boot configfile search search_fs_file search_label chain iso9660 fat part_gpt part_msdos all_video efi_gop efi_uga terminal echo test sleep ls cat halt reboot
 rm -f "$STAGE/efi.img"; truncate -s 16M "$STAGE/efi.img"
 chroot "$LFS" $CENV mformat -i /tmp/isobuild/efi.img ::
 chroot "$LFS" $CENV mmd -i /tmp/isobuild/efi.img ::/EFI ::/EFI/BOOT

@@ -331,15 +331,18 @@ mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'EOF'
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin aurora --noclear %I $TERM
+ExecStart=-/sbin/agetty --autologin aurora --noissue %I $TERM
 EOF
 # start the desktop on login at tty1
 cat > /var/lib/aurora/.bash_profile <<'EOF'
 # AuroraOS: start the desktop automatically on the first VT
 if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+  printf '\033[2J\033[H'   # blank the VT so no login text flashes pre-desktop
   exec /usr/bin/aurora-session
 fi
 EOF
+# suppress login(1)'s "Last login:" line — boot should be silent like macOS
+touch /var/lib/aurora/.hushlogin
 chown -R aurora:aurora /var/lib/aurora
 systemctl set-default multi-user.target
 
