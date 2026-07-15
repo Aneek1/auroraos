@@ -67,7 +67,7 @@ insmod chain
 # on booting removable media first, so without this the attached ISO/USB
 # hijacks every reboot. The live/installer entry stays in the menu for
 # reinstalls; it is only the default on a blank machine.
-if search --no-floppy --label EFI --set=esp; then
+if search --no-floppy --label EFI --set=espdev; then
   set default=installed
 else
   set default=live
@@ -77,7 +77,8 @@ fi
 set timeout=2
 set timeout_style=hidden
 menuentry "AuroraOS (installed system)" --id installed {
-  chainloader (\$esp)/EFI/BOOT/BOOTX64.EFI
+  search --no-floppy --label EFI --set=root
+  chainloader /EFI/BOOT/BOOTX64.EFI
 }
 menuentry "AuroraOS ${DISTRO_VERSION} — live / installer" --id live {
   linux /boot/vmlinuz-aurora quiet loglevel=3 systemd.show_status=0 udev.log_level=3 vt.global_cursor_default=0 video=1920x1080
