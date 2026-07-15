@@ -97,6 +97,69 @@ static void aurora_toast(const char *glyph, const char *text);
  * by the real output size via the opposite-edge anchors. */
 #define AURORA_COVER_H 2160
 
+/* ----- resolution scaling ------------------------------------------------
+ * The shell was designed at 1280x800. Rather than hardcode a second set of
+ * sizes for 1080p, compute a scale factor from the monitor geometry at
+ * startup and apply it to (a) widget layout sizes via S(), (b) the px font
+ * sizes in style.css via a generated override provider, and (c) the GTK
+ * default (pt-based) font via gtk-xft-dpi. Any resolution renders
+ * proportionally — 800p is 1.0, 1080p ≈ 1.35, 4K ≈ 2.7 (capped). */
+static double g_k = 1.0;
+static int S(int v) { return (int)(v * g_k + 0.5); }
+static void scale_init(void) {
+    GdkDisplay *d = gdk_display_get_default();
+    GdkMonitor *m = gdk_display_get_primary_monitor(d);
+    if (!m) m = gdk_display_get_monitor(d, 0);
+    if (!m) return;
+    GdkRectangle geo; gdk_monitor_get_geometry(m, &geo);
+    double k = MIN(geo.width / 1280.0, geo.height / 800.0);
+    g_k = CLAMP(k, 1.0, 2.5);
+    if (g_k < 1.05) return;   /* design size — nothing to override */
+
+    /* pt-based (unstyled) text follows xft-dpi */
+    g_object_set(gtk_settings_get_default(),
+                 "gtk-xft-dpi", (int)(96 * 1024 * g_k), NULL);
+
+    /* px font sizes from style.css, re-emitted scaled. Same selectors; this
+     * provider is added at a higher priority so it wins the tie. */
+    GString *c = g_string_new("");
+    struct { const char *sel; int px; } f[] = {
+        {".wp-brand", 120}, {"#logo", 14}, {"#logo .mark", 17},
+        {"menu menuitem", 13}, {"#clock", 14}, {".tbtn", 13}, {".tray", 13},
+        {".taskbtn", 13}, {"#splash-name", 30}, {"#splash-sub", 14},
+        {"#launcher .title", 18}, {"#launcher-search", 14},
+        {".applaunch .aname", 12}, {".applaunch .aicon", 40},
+        {"#aura .head", 15}, {".orb", 20},
+        {"#store .title", 18}, {".sicon", 30}, {".sname", 15}, {".sdesc", 12},
+        {".abt-name", 26}, {".abt-ver", 13}, {".abt-desc", 13}, {".abt-link", 12},
+        {".eyebrow", 11}, {".pclose", 14},
+        {".qt", 13}, {".qt .qic", 16}, {".sgi", 16}, {".who", 13},
+        {"#noti .title", 17}, {".nclear", 12}, {".nsrc", 11},
+        {".ntitle", 13}, {".nbody", 12}, {".nempty", 12},
+        {".cal-m", 12}, {".cal-d", 34}, {".cal-w", 12}, {".wh", 11},
+        {"#toast", 13},
+        {".lock-time", 118}, {".lock-date", 21}, {".lock-hint", 13},
+        {"#instwin radiobutton", 13}, {"#instcard radiobutton", 13},
+        {"#instcard button", 13}, {"#instwin button", 13},
+        {".inst-warn", 12}, {".inst-title", 30}, {".inst-sect", 12},
+        {".inst-logo", 34},
+    };
+    for (size_t i = 0; i < G_N_ELEMENTS(f); i++)
+        g_string_append_printf(c, "%s { font-size: %dpx; }\n",
+                               f[i].sel, S(f[i].px));
+    /* icon buttons need their touch targets scaled with the glyphs */
+    g_string_append_printf(c,
+        ".dbtn { font-size: %dpx; min-width: %dpx; min-height: %dpx; }\n"
+        ".taskbtn { min-height: %dpx; }\n",
+        S(30), S(52), S(52), S(40));
+
+    GtkCssProvider *p = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(p, c->str, -1, NULL);
+    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(p), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    g_string_free(c, TRUE);
+}
+
 /* strip .desktop Exec field codes (%U %F %f %u %i %c %k ...) */
 static char *clean_exec(const char *raw) {
     GString *s = g_string_new("");
@@ -226,6 +289,13 @@ static char *aurorad_send(const char *method, const char *path, const char *body
     int port = 7212;
     const char *env = g_getenv("AURORAD_PORT");
     if (env) port = atoi(env);
+    /* privileged endpoints (disk install, persistence, model download) are
+     * served by the root aurorad-system service on its own port */
+    if (g_str_has_prefix(path, "/system/")) {
+        port = 7213;
+        env = g_getenv("AURORAD_SYSTEM_PORT");
+        if (env) port = atoi(env);
+    }
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return NULL;
@@ -428,7 +498,7 @@ static GtkWidget *make_tbtn(const char *label, GCallback cb) {
 static void build_topbar(void) {
     GtkWidget *bar = layer_window(GTK_LAYER_SHELL_LAYER_TOP, TRUE, FALSE, TRUE, TRUE, -1);
     gtk_widget_set_name(bar, "topbar");
-    gtk_widget_set_size_request(bar, -1, 40);
+    gtk_widget_set_size_request(bar, -1, S(40));
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_margin_start(hb, 12); gtk_widget_set_margin_end(hb, 12);
 
@@ -707,7 +777,7 @@ static void build_splash(void) {
 static void build_dock(void) {
     GtkWidget *dock = layer_window(GTK_LAYER_SHELL_LAYER_TOP, FALSE, TRUE, FALSE, FALSE, -1);
     gtk_widget_set_name(dock, "dock");
-    gtk_layer_set_margin(GTK_WINDOW(dock), GTK_LAYER_SHELL_EDGE_BOTTOM, 12);
+    gtk_layer_set_margin(GTK_WINDOW(dock), GTK_LAYER_SHELL_EDGE_BOTTOM, S(12));
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
     /* pinned apps (persisted) */
@@ -840,7 +910,7 @@ static void build_launcher(void) {
     g_launcher = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, FALSE, FALSE, FALSE, FALSE, -1);
     gtk_widget_set_name(g_launcher, "launcher");
     gtk_layer_set_keyboard_mode(GTK_WINDOW(g_launcher), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
-    gtk_window_set_default_size(GTK_WINDOW(g_launcher), 720, 480);
+    gtk_window_set_default_size(GTK_WINDOW(g_launcher), S(720), S(480));
     g_signal_connect(g_launcher, "key-press-event", G_CALLBACK(launcher_key), NULL);
     g_signal_connect(g_launcher, "show", G_CALLBACK(launcher_shown), NULL);
 
@@ -887,7 +957,7 @@ static void build_aura(void) {
      * forcing a tall AURORA_COVER_H size request here makes GTK lay the window out
      * at 2160px so the bottom-docked input entry falls below the visible screen —
      * i.e. "no place to type". A -1 height uses the compositor's configured size. */
-    gtk_widget_set_size_request(g_aura, 380, -1);
+    gtk_widget_set_size_request(g_aura, S(380), -1);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
@@ -1059,7 +1129,7 @@ static void build_store(void) {
     g_store = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, FALSE, FALSE, FALSE, FALSE, -1);
     gtk_widget_set_name(g_store, "store");
     gtk_layer_set_keyboard_mode(GTK_WINDOW(g_store), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
-    gtk_window_set_default_size(GTK_WINDOW(g_store), 560, 520);
+    gtk_window_set_default_size(GTK_WINDOW(g_store), S(560), S(520));
     g_signal_connect(g_store, "key-press-event", G_CALLBACK(store_key), NULL);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -1184,8 +1254,8 @@ static void aurora_toast(const char *glyph, const char *text) {
 static void build_toast(void) {
     g_toast = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, FALSE, TRUE, FALSE, TRUE, -1);
     gtk_widget_set_name(g_toast, "toast");
-    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_BOTTOM, 86);
-    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_RIGHT, 16);
+    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_BOTTOM, S(86));
+    gtk_layer_set_margin(GTK_WINDOW(g_toast), GTK_LAYER_SHELL_EDGE_RIGHT, S(16));
     g_toast_lbl = gtk_label_new("");
     gtk_widget_set_margin_start(g_toast_lbl, 16); gtk_widget_set_margin_end(g_toast_lbl, 16);
     gtk_widget_set_margin_top(g_toast_lbl, 12);   gtk_widget_set_margin_bottom(g_toast_lbl, 12);
@@ -1212,9 +1282,9 @@ static void build_control_center(void) {
     g_cc = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, FALSE, TRUE, -1);
     gtk_widget_set_name(g_cc, "cc");
     gtk_layer_set_keyboard_mode(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
-    gtk_layer_set_margin(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_EDGE_TOP, 46);
+    gtk_layer_set_margin(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_EDGE_TOP, S(40) + 6);
     gtk_layer_set_margin(GTK_WINDOW(g_cc), GTK_LAYER_SHELL_EDGE_RIGHT, 8);
-    gtk_widget_set_size_request(g_cc, 360, -1);
+    gtk_widget_set_size_request(g_cc, S(360), -1);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
@@ -1321,8 +1391,8 @@ static void noti_add(const char *src, const char *hue, const char *title, const 
 static void build_notifications(void) {
     g_noti = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, FALSE, FALSE, -1);
     gtk_widget_set_name(g_noti, "noti");
-    gtk_layer_set_margin(GTK_WINDOW(g_noti), GTK_LAYER_SHELL_EDGE_TOP, 46);
-    gtk_widget_set_size_request(g_noti, 360, -1);
+    gtk_layer_set_margin(GTK_WINDOW(g_noti), GTK_LAYER_SHELL_EDGE_TOP, S(40) + 6);
+    gtk_widget_set_size_request(g_noti, S(360), -1);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
@@ -1399,9 +1469,9 @@ static gpointer day_worker(gpointer u) {
 static void build_widgets(void) {
     g_widgets = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, TRUE, FALSE, TRUE, FALSE, -1);
     gtk_widget_set_name(g_widgets, "widgets");
-    gtk_layer_set_margin(GTK_WINDOW(g_widgets), GTK_LAYER_SHELL_EDGE_TOP, 46);
+    gtk_layer_set_margin(GTK_WINDOW(g_widgets), GTK_LAYER_SHELL_EDGE_TOP, S(40) + 6);
     gtk_layer_set_margin(GTK_WINDOW(g_widgets), GTK_LAYER_SHELL_EDGE_LEFT, 8);
-    gtk_widget_set_size_request(g_widgets, 420, -1);
+    gtk_widget_set_size_request(g_widgets, S(420), -1);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(v, 16); gtk_widget_set_margin_end(v, 16);
@@ -1497,7 +1567,7 @@ static void build_lock(void) {
     gtk_style_context_add_class(gtk_widget_get_style_context(g_lock_date), "lock-date");
     GtkWidget *hint = gtk_label_new("Press Enter or click to unlock");
     gtk_style_context_add_class(gtk_widget_get_style_context(hint), "lock-hint");
-    gtk_widget_set_margin_top(hint, 40);
+    gtk_widget_set_margin_top(hint, S(40));
     gtk_box_pack_start(GTK_BOX(v), g_lock_time, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(v), g_lock_date, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(v), hint, FALSE, FALSE, 0);
@@ -1533,7 +1603,7 @@ static gboolean tick_aurora(gpointer canvas) { g_aurora_phase++; gtk_widget_queu
 static void build_aurora_band(void) {
     GtkWidget *band = layer_window(GTK_LAYER_SHELL_LAYER_BACKGROUND, TRUE, FALSE, TRUE, TRUE, -1);
     gtk_widget_set_name(band, "aurora-band");
-    gtk_widget_set_size_request(band, -1, 170);
+    gtk_widget_set_size_request(band, -1, S(170));
     /* an RGBA visual + app-paintable stops GTK filling the window opaque (white) */
     GdkScreen *scr = gdk_screen_get_default();
     GdkVisual *rgba = gdk_screen_get_rgba_visual(scr);
@@ -1556,7 +1626,7 @@ static void am_about(GtkMenuItem *i, gpointer u) {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name(w, "aboutwin");
     gtk_window_set_title(GTK_WINDOW(w), "About AuroraOS");
-    gtk_window_set_default_size(GTK_WINDOW(w), 380, 320);
+    gtk_window_set_default_size(GTK_WINDOW(w), S(380), S(320));
     gtk_window_set_resizable(GTK_WINDOW(w), FALSE);
 
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1755,7 +1825,7 @@ static void build_install_win(void) {
     g_inst = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name(g_inst, "instwin");
     gtk_window_set_title(GTK_WINDOW(g_inst), "Install AuroraOS");
-    gtk_window_set_default_size(GTK_WINDOW(g_inst), 470, 420);
+    gtk_window_set_default_size(GTK_WINDOW(g_inst), S(470), S(420));
     gtk_window_set_resizable(GTK_WINDOW(g_inst), FALSE);
     g_signal_connect(g_inst, "delete-event",
                      G_CALLBACK(gtk_widget_hide_on_delete), NULL);
@@ -1844,7 +1914,7 @@ static void build_installer_first(void) {
 
     GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_name(card, "instcard");
-    gtk_widget_set_size_request(card, 540, -1);
+    gtk_widget_set_size_request(card, S(540), -1);
     gtk_widget_set_margin_top(card, 34);  gtk_widget_set_margin_bottom(card, 30);
     gtk_widget_set_margin_start(card, 42); gtk_widget_set_margin_end(card, 42);
 
@@ -1884,10 +1954,10 @@ static void build_installer_first(void) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_set_halign(row, GTK_ALIGN_END); gtk_widget_set_margin_top(row, 6);
     GtkWidget *tryb = gtk_button_new_with_label("Try AuroraOS");
-    gtk_widget_set_size_request(tryb, 150, 40);
+    gtk_widget_set_size_request(tryb, S(150), S(40));
     g_signal_connect(tryb, "clicked", G_CALLBACK(inst_try), NULL);
     g_inst_go = gtk_button_new_with_label("Erase & Install");
-    gtk_widget_set_size_request(g_inst_go, 160, 40);
+    gtk_widget_set_size_request(g_inst_go, S(160), S(40));
     gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_go), "inst-go");
     gtk_widget_set_sensitive(g_inst_go, FALSE);
     g_signal_connect(g_inst_go, "clicked", G_CALLBACK(inst_go), NULL);
@@ -1957,7 +2027,7 @@ static void am_aura_setup(GtkMenuItem *i, gpointer u) {
         g_aura_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_widget_set_name(g_aura_win, "instwin");
         gtk_window_set_title(GTK_WINDOW(g_aura_win), "Set up Aura");
-        gtk_window_set_default_size(GTK_WINDOW(g_aura_win), 430, 220);
+        gtk_window_set_default_size(GTK_WINDOW(g_aura_win), S(430), S(220));
         gtk_window_set_resizable(GTK_WINDOW(g_aura_win), FALSE);
         g_signal_connect(g_aura_win, "delete-event",
                          G_CALLBACK(gtk_widget_hide_on_delete), NULL);
@@ -2075,6 +2145,7 @@ int main(int argc, char **argv) {
     }
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
         GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    scale_init();   /* size everything from the real monitor geometry */
 
     gboolean installer_mode = (g_getenv("AURORA_INSTALLER") != NULL);
     for (int i = 1; i < argc; i++)

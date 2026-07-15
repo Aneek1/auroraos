@@ -1,0 +1,14 @@
+[Unit]
+Description=AuroraOS system service (root: install-to-disk, persistence, model download)
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/aurora/aurorad
+Environment=AURORAD_PORT=7213
+Restart=always
+RestartSec=2
+# root is required: wipefs/sfdisk/mkfs/mount/chroot for install, /opt writes
+# for the Aura model. Binds 127.0.0.1 only.
+
+[Install]
+WantedBy=multi-user.target

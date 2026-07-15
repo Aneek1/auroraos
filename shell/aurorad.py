@@ -15,6 +15,10 @@ import json, os, re, glob, subprocess, time, urllib.parse, urllib.request, shuti
 import aura_llm
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# sbin tools (wipefs, sfdisk, mkfs.*) must resolve regardless of who starts us
+# — the labwc session PATH has no sbin, which broke installs with FileNotFoundError.
+os.environ["PATH"] = "/usr/sbin:/usr/bin:/sbin:/bin:" + os.environ.get("PATH", "")
+
 PORT = int(os.environ.get("AURORAD_PORT", "7212"))
 LAUNCH_WHITELIST = {"terminal": ["foot"], "editor": ["foot", "vi"]}
 START = time.time()
