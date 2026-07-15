@@ -156,10 +156,11 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
 
 /* ---- About window (Aurora menu) — fully opaque dark card ---- */
 #aboutwin { background-color: #0d1424; }
-#aboutwin .abt-name { font-size: 26px; font-weight: 800; color: #eef1f8; }
-#aboutwin .abt-ver  { font-size: 13px; color: #98a2ba; }
-#aboutwin .abt-desc { font-size: 13px; color: #cfd6e4; }
-#aboutwin .abt-link { font-size: 12px; color: #34e0c8; }
+/* .abt-* typography is shared by About, the installer, and Aura setup */
+.abt-name { font-size: 26px; font-weight: 800; color: #eef1f8; }
+.abt-ver  { font-size: 13px; color: #98a2ba; }
+.abt-desc { font-size: 13px; color: #cfd6e4; }
+.abt-link { font-size: 12px; color: #34e0c8; }
 #aboutwin .abt-close {
   background-image: none; background-color: #34e0c8; color: #08243a; font-weight: 600;
   border: none; box-shadow: none; padding: 8px 26px; border-radius: 11px;
@@ -301,3 +302,28 @@ menu menuitem:hover, menu menuitem:focus { background-color: rgba(255,255,255,0.
   background-color: rgba(255,255,255,0.08); }
 #instcard progressbar progress { min-height: 12px; border-radius: 7px;
   background-image: linear-gradient(to right, #34e0c8, #8b7cf6); }
+
+/* ---- installer polish ---- */
+#instcard button, #instwin button {
+  padding: 8px 20px; border-radius: 9px; font-size: 13px;
+  background-color: rgba(255,255,255,0.08); color: #eef1f8;
+  border: 1px solid rgba(255,255,255,0.14); background-image: none;
+}
+#instcard button:hover, #instwin button:hover {
+  background-color: rgba(255,255,255,0.14);
+}
+#instcard button.inst-go, #instwin button.inst-go {
+  background-image: linear-gradient(to bottom, #34e0c8, #21b6a3);
+  color: #06201c; font-weight: 700; border: none;
+}
+#instcard button.inst-go:hover, #instwin button.inst-go:hover {
+  background-image: linear-gradient(to bottom, #5eebd6, #34e0c8);
+}
+#instcard button.inst-go:disabled, #instwin button.inst-go:disabled {
+  background-image: none; background-color: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.32); border: 1px solid rgba(255,255,255,0.08);
+}
+#instcard checkbutton, #instwin checkbutton { color: #f4a988; }
+.inst-title { font-size: 30px; font-weight: 800; color: #ffffff; }
+.inst-sect  { font-size: 12px; font-weight: 700; color: #98a2ba; }
+.inst-logo  { font-size: 34px; color: #34e0c8; }

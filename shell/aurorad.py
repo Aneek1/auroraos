@@ -541,7 +541,7 @@ def _do_install(disk):
                 "set gfxpayload=keep\n\n"
                 'menuentry "AuroraOS 1.0 — daybreak" {\n'
                 "  linux /boot/vmlinuz-aurora root=UUID=%s rw quiet loglevel=3 "
-                "vt.global_cursor_default=0\n}\n\n"
+                "vt.global_cursor_default=0 video=1920x1080\n}\n\n"
                 'menuentry "AuroraOS (verbose / rescue)" {\n'
                 "  linux /boot/vmlinuz-aurora root=UUID=%s rw "
                 "systemd.unit=multi-user.target\n}\n" % (ruuid, ruuid))

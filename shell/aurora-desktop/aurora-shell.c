@@ -1645,12 +1645,25 @@ static void inst_gate_toggled(GtkToggleButton *b, gpointer u) {
     gtk_widget_set_sensitive(g_inst_go,
         gtk_toggle_button_get_active(b) && g_inst_disk[0]);
 }
+static guint g_inst_scan_timer = 0;
+static gboolean inst_rescan(gpointer u);
 static void inst_refresh_disks(void) {
     GList *kids = gtk_container_get_children(GTK_CONTAINER(g_inst_disks));
     for (GList *l = kids; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
     g_list_free(kids);
     g_inst_disk[0] = '\0';
     char *r = aurorad_send("GET", "/system/disks", NULL);
+    if (!r) {
+        /* aurorad is still starting (session race) — retry until it answers */
+        GtkWidget *wait = gtk_label_new("Looking for disks…");
+        gtk_widget_set_halign(wait, GTK_ALIGN_START);
+        gtk_box_pack_start(GTK_BOX(g_inst_disks), wait, FALSE, FALSE, 2);
+        gtk_widget_show_all(g_inst_disks);
+        if (!g_inst_scan_timer)
+            g_inst_scan_timer = g_timeout_add(1200, inst_rescan, NULL);
+        return;
+    }
+    if (g_inst_scan_timer) { g_source_remove(g_inst_scan_timer); g_inst_scan_timer = 0; }
     char *list = json_str(r, "list");
     GSList *group = NULL;
     int n = 0;
@@ -1667,6 +1680,8 @@ static void inst_refresh_disks(void) {
                                  g_strdup(c[0]));   /* dev string, lives with widget */
                 gtk_box_pack_start(GTK_BOX(g_inst_disks), rb, FALSE, FALSE, 2);
                 g_free(lbl); n++;
+                /* preselect the first (radio group starts active on the first) */
+                if (n == 1) g_strlcpy(g_inst_disk, c[0], sizeof g_inst_disk);
             }
             g_strfreev(c);
         }
@@ -1674,12 +1689,21 @@ static void inst_refresh_disks(void) {
     }
     if (!n) {
         GtkWidget *none = gtk_label_new("No installable disk found.\n"
-            "Add a hard disk to the machine, then reopen this window.");
+            "Add a hard disk to the machine, then press Refresh.");
+        gtk_widget_set_halign(none, GTK_ALIGN_START);
         gtk_box_pack_start(GTK_BOX(g_inst_disks), none, FALSE, FALSE, 2);
     }
     gtk_widget_show_all(g_inst_disks);
+    if (g_inst_gate)
+        inst_gate_toggled(GTK_TOGGLE_BUTTON(g_inst_gate), NULL);
     g_free(list); g_free(r);
 }
+static gboolean inst_rescan(gpointer u) {
+    g_inst_scan_timer = 0;
+    inst_refresh_disks();
+    return G_SOURCE_REMOVE;   /* refresh re-arms the timer if still waiting */
+}
+static void inst_refresh_clicked(GtkButton *b, gpointer u) { inst_refresh_disks(); }
 static gboolean inst_poll(gpointer u) {
     char *r = aurorad_send("GET", "/system/install-progress", NULL);
     if (!r) return G_SOURCE_CONTINUE;
@@ -1824,12 +1848,11 @@ static void build_installer_first(void) {
     gtk_widget_set_margin_top(card, 34);  gtk_widget_set_margin_bottom(card, 30);
     gtk_widget_set_margin_start(card, 42); gtk_widget_set_margin_end(card, 42);
 
-    GtkWidget *logo = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(logo),
-        "<span foreground='#34e0c8' size='xx-large'>◗</span>");
+    GtkWidget *logo = gtk_label_new("◗");
+    gtk_style_context_add_class(gtk_widget_get_style_context(logo), "inst-logo");
     gtk_widget_set_halign(logo, GTK_ALIGN_START);
     GtkWidget *title = gtk_label_new("Welcome to AuroraOS");
-    gtk_style_context_add_class(gtk_widget_get_style_context(title), "abt-name");
+    gtk_style_context_add_class(gtk_widget_get_style_context(title), "inst-title");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     GtkWidget *sub = gtk_label_new("Install AuroraOS onto this computer, or try it "
         "first without changing anything on your disk.");
@@ -1837,8 +1860,15 @@ static void build_installer_first(void) {
     gtk_style_context_add_class(gtk_widget_get_style_context(sub), "abt-desc");
     gtk_widget_set_halign(sub, GTK_ALIGN_START);
 
-    GtkWidget *pick = gtk_label_new("Install onto:");
-    gtk_widget_set_halign(pick, GTK_ALIGN_START); gtk_widget_set_margin_top(pick, 8);
+    GtkWidget *pickrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(pickrow, 10);
+    GtkWidget *pick = gtk_label_new("INSTALL ONTO");
+    gtk_style_context_add_class(gtk_widget_get_style_context(pick), "inst-sect");
+    gtk_widget_set_valign(pick, GTK_ALIGN_CENTER);
+    GtkWidget *refresh = gtk_button_new_with_label("⟳ Refresh");
+    g_signal_connect(refresh, "clicked", G_CALLBACK(inst_refresh_clicked), NULL);
+    gtk_box_pack_start(GTK_BOX(pickrow), pick, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(pickrow), refresh, FALSE, FALSE, 0);
     g_inst_disks = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     g_inst_gate = gtk_check_button_new_with_label(
         "I understand this erases the entire selected disk.");
@@ -1854,8 +1884,10 @@ static void build_installer_first(void) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_set_halign(row, GTK_ALIGN_END); gtk_widget_set_margin_top(row, 6);
     GtkWidget *tryb = gtk_button_new_with_label("Try AuroraOS");
+    gtk_widget_set_size_request(tryb, 150, 40);
     g_signal_connect(tryb, "clicked", G_CALLBACK(inst_try), NULL);
     g_inst_go = gtk_button_new_with_label("Erase & Install");
+    gtk_widget_set_size_request(g_inst_go, 160, 40);
     gtk_style_context_add_class(gtk_widget_get_style_context(g_inst_go), "inst-go");
     gtk_widget_set_sensitive(g_inst_go, FALSE);
     g_signal_connect(g_inst_go, "clicked", G_CALLBACK(inst_go), NULL);
@@ -1865,7 +1897,7 @@ static void build_installer_first(void) {
     gtk_box_pack_start(GTK_BOX(card), logo,  FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(card), title, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(card), sub,   FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(card), pick,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(card), pickrow, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(card), g_inst_disks,  FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(card), g_inst_gate,   FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(card), g_inst_bar,    FALSE, FALSE, 6);

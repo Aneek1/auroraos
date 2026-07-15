@@ -63,7 +63,7 @@ cat > "$WORK/iso/boot/grub/grub.cfg" <<EOF
 set default=0
 set timeout=3
 menuentry "AuroraOS ${DISTRO_VERSION} — live" {
-  linux /boot/vmlinuz-aurora quiet loglevel=3 vt.global_cursor_default=0
+  linux /boot/vmlinuz-aurora quiet loglevel=3 vt.global_cursor_default=0 video=1920x1080
   initrd /boot/initramfs.gz
 }
 EOF
