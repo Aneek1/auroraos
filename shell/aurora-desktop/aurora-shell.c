@@ -347,7 +347,9 @@ static char *aura_ask(const char *q) {
         char *p = strstr(json, keys[k]);
         if (!p) continue;
         p = strchr(p, ':'); if (!p) continue; p++;
-        while (*p == ' ' || *p == '"') p++;
+        while (*p == ' ') p++;
+        if (*p != '"') continue;
+        p++;
         GString *out = g_string_new("");
         for (; *p && *p != '"'; p++) {
             if (*p == '\\' && p[1]) { p++;
@@ -708,12 +710,16 @@ static void ftl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct
         if (*st == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED) tl->activated = TRUE;
 }
 static void ftl_done(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) { (void)h; update_task_button((Toplevel *)d); }
+static GtkWidget *g_dock;
 static void ftl_closed(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
     Toplevel *tl = d;
     if (tl->btn) { gtk_widget_destroy(tl->btn); g_object_unref(tl->btn); }
     zwlr_foreign_toplevel_handle_v1_destroy(h);
     g_toplevels = g_list_remove(g_toplevels, tl);
     g_free(tl->title); g_free(tl->app_id); g_free(tl);
+    /* the layer surface keeps its old width after a chip is removed — force a
+     * re-shrink-wrap so the dock doesn't show a dead gap */
+    if (g_dock) gtk_window_resize(GTK_WINDOW(g_dock), 1, 1);
 }
 static void ftl_parent(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct zwlr_foreign_toplevel_handle_v1 *p) { (void)d;(void)h;(void)p; }
 static const struct zwlr_foreign_toplevel_handle_v1_listener ftl_handle_listener = {
@@ -809,6 +815,7 @@ static void build_splash(void) {
 
 static void build_dock(void) {
     GtkWidget *dock = layer_window(GTK_LAYER_SHELL_LAYER_TOP, FALSE, TRUE, FALSE, FALSE, -1);
+    g_dock = dock;
     gtk_widget_set_name(dock, "dock");
     gtk_layer_set_margin(GTK_WINDOW(dock), GTK_LAYER_SHELL_EDGE_BOTTOM, S(12));
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -1709,7 +1716,11 @@ static char *json_str(const char *json, const char *key) {
     char *p = strstr(json, pat); g_free(pat);
     if (!p) return NULL;
     p = strchr(p, ':'); if (!p) return NULL; p++;
-    while (*p == ' ' || *p == '"') p++;
+    /* skip spaces, then exactly ONE opening quote — a greedy skip here ate
+     * both quotes of an empty string ("error": "") and returned '}' */
+    while (*p == ' ') p++;
+    if (*p != '"') return NULL;
+    p++;
     GString *out = g_string_new("");
     for (; *p && *p != '"'; p++) {
         if (*p == '\\' && p[1]) { p++; g_string_append_c(out, *p == 'n' ? '\n' : *p); }

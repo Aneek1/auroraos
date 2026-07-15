@@ -191,7 +191,9 @@ static char *njson_str(const char *json, const char *key) {
     char *p = strstr(json, pat); g_free(pat);
     if (!p) return NULL;
     p = strchr(p, ':'); if (!p) return NULL; p++;
-    while (*p == ' ' || *p == '"') p++;
+    while (*p == ' ') p++;
+    if (*p != '"') return NULL;   /* exactly one opening quote */
+    p++;
     GString *out = g_string_new("");
     for (; *p && *p != '"'; p++) {
         if (*p == '\\' && p[1]) { p++; g_string_append_c(out, *p == 'n' ? '\n' : *p); }
