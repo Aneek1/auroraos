@@ -1,6 +1,18 @@
 """Aura's on-device LLM layer: prompt -> llama.cpp -> validated tool calls.
 Stdlib only (ships to the LFS target). aurorad.py calls ask()."""
-import json, os, urllib.request, urllib.error
+import json, os, re, urllib.request, urllib.error
+
+# The bundled 1B model frequently hallucinates a tool call for plain chit-chat
+# (e.g. "hi" -> open_terminal). A model-emitted action is only honored when the
+# user's own words show action intent; otherwise the call is dropped and we just
+# chat. Deterministic commands are already handled upstream in aurorad.py.
+_ACTION_CUE = re.compile(
+    r"\b(open|launch|start|run|show|list|close|quit|set|turn|adjust|"
+    r"shut\s?down|power|reboot|restart|brightness|status|uptime|"
+    r"terminal|app|apps)\b", re.I)
+
+def _has_action_intent(text):
+    return bool(_ACTION_CUE.search(text or ""))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -188,7 +200,10 @@ def ask(user_text, executors=None, status=None, tools=None):
     if raw is None:
         return {"a": heuristic_fallback(user_text, status), "actions": []}
     parsed = parse_model_output(raw)
-    actions, notes = route(parsed["tool_calls"], tools, executors)
+    calls = parsed["tool_calls"]
+    if calls and not _has_action_intent(user_text):
+        calls = []   # model invented an action for conversational input — ignore it
+    actions, notes = route(calls, tools, executors)
     reply = parsed["reply"] or ""
     if notes:
         reply = (reply + " " + " ".join(notes)).strip()

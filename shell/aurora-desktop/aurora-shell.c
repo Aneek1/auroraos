@@ -681,6 +681,13 @@ static void update_task_button(Toplevel *tl) {
             }
             g_free(want);
         }
+        if (!ico) {
+            /* generic fallback so a chip is never text-only (shell-owned
+             * windows like "Set up Aura" have no matching app icon) */
+            ico = gtk_image_new_from_icon_name("application-x-executable",
+                                               GTK_ICON_SIZE_MENU);
+            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(20));
+        }
         if (ico) {
             gtk_box_pack_start(GTK_BOX(tl->hbox), ico, FALSE, FALSE, 0);
             gtk_box_reorder_child(GTK_BOX(tl->hbox), ico, 0);
@@ -742,7 +749,12 @@ static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
     gtk_widget_set_focus_on_click(tl->btn, FALSE);
     tl->lbl = gtk_label_new("…");
     gtk_label_set_ellipsize(GTK_LABEL(tl->lbl), PANGO_ELLIPSIZE_END);
+    /* width_chars floors the label's minimum request; without it the dock's
+     * shrink-to-fit (gtk_window_resize(g_dock,1,1)) starves the label to the
+     * ellipsis width and every chip collapses to a bare "…". */
+    gtk_label_set_width_chars(GTK_LABEL(tl->lbl), 9);
     gtk_label_set_max_width_chars(GTK_LABEL(tl->lbl), 16);
+    gtk_label_set_xalign(GTK_LABEL(tl->lbl), 0.0);
     tl->hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(tl->hbox), tl->lbl, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(tl->btn), tl->hbox);
