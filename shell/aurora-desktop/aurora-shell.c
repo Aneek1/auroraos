@@ -267,6 +267,14 @@ static GtkWidget *icon_widget(const char *icon, int size, const char *glyph) {
             }
         }
     }
+    /* themed generic before the ASCII glyph — Adwaita ships with the OS now */
+    GtkIconTheme *fth = gtk_icon_theme_get_default();
+    if (gtk_icon_theme_has_icon(fth, "application-x-executable")) {
+        GtkWidget *img = gtk_image_new_from_icon_name("application-x-executable",
+                                                      GTK_ICON_SIZE_DIALOG);
+        gtk_image_set_pixel_size(GTK_IMAGE(img), size);
+        return img;
+    }
     GtkWidget *lab = gtk_label_new(glyph ? glyph : "◈");
     gtk_style_context_add_class(gtk_widget_get_style_context(lab), "aicon");
     return lab;
@@ -509,7 +517,11 @@ static GtkWidget *make_tbtn(const char *label, GCallback cb) {
 }
 
 static void build_topbar(void) {
-    GtkWidget *bar = layer_window(GTK_LAYER_SHELL_LAYER_TOP, TRUE, FALSE, TRUE, TRUE, -1);
+    /* Reserve the bar's height (positive exclusive zone) so maximized/tiled
+     * windows sit BELOW it and their titlebars stay reachable. Only the
+     * full-cover wallpaper must stay at -1 (its arrangement is what aborts
+     * GTK); a fixed-height edge strip reserving an explicit +40 is well-defined. */
+    GtkWidget *bar = layer_window(GTK_LAYER_SHELL_LAYER_TOP, TRUE, FALSE, TRUE, TRUE, S(40));
     gtk_widget_set_name(bar, "topbar");
     gtk_widget_set_size_request(bar, -1, S(40));
     GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -655,7 +667,10 @@ static void rebuild_pinbox(void) {
         gtk_style_context_add_class(gtk_widget_get_style_context(b), "dbtn");
         gtk_widget_set_focus_on_click(b, FALSE);
         gtk_widget_set_tooltip_text(b, p->name);
-        gtk_container_add(GTK_CONTAINER(b), icon_widget(p->icon, S(26), "▣"));
+        /* empty pin icon: try the exec name as a themed icon (e.g. "foot"
+         * resolves to the terminal's own hicolor icon) before the generic */
+        gtk_container_add(GTK_CONTAINER(b),
+            icon_widget((p->icon && *p->icon) ? p->icon : p->exec, S(26), "▣"));
         g_signal_connect_swapped(b, "clicked", G_CALLBACK(launch), p->exec);
         g_signal_connect(b, "button-press-event", G_CALLBACK(pin_btn_press), p->exec);
         gtk_box_pack_start(GTK_BOX(g_pinbox), b, FALSE, FALSE, 0);
@@ -751,6 +766,25 @@ static void on_task_clicked(GtkButton *b, gpointer d) {
     (void)b; Toplevel *tl = d;
     if (g_ftl_seat) zwlr_foreign_toplevel_handle_v1_activate(tl->handle, g_ftl_seat);
 }
+/* right-click a running-window chip -> context menu with Quit (macOS "hold the
+ * dock icon" affordance). Quit asks the toplevel to close via the protocol. */
+static void task_quit(GtkMenuItem *mi, gpointer d) {
+    (void)mi; Toplevel *tl = d;
+    zwlr_foreign_toplevel_handle_v1_close(tl->handle);
+}
+static gboolean task_btn_press(GtkWidget *w, GdkEventButton *e, gpointer d) {
+    (void)w; Toplevel *tl = d;
+    if (e->type == GDK_BUTTON_PRESS && e->button == 3) {
+        GtkWidget *menu = gtk_menu_new();
+        GtkWidget *mi = gtk_menu_item_new_with_label("Quit");
+        g_signal_connect(mi, "activate", G_CALLBACK(task_quit), tl);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+        gtk_widget_show_all(menu);
+        gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)e);
+        return TRUE;
+    }
+    return FALSE;
+}
 static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
                     struct zwlr_foreign_toplevel_handle_v1 *h) {
     (void)d; (void)m;
@@ -766,6 +800,7 @@ static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
     gtk_widget_set_halign(tl->hbox, GTK_ALIGN_CENTER);
     gtk_container_add(GTK_CONTAINER(tl->btn), tl->hbox);
     g_signal_connect(tl->btn, "clicked", G_CALLBACK(on_task_clicked), tl);
+    g_signal_connect(tl->btn, "button-press-event", G_CALLBACK(task_btn_press), tl);
     g_object_ref_sink(tl->btn);   /* parked until the toplevel gets a name */
     zwlr_foreign_toplevel_handle_v1_add_listener(h, &ftl_handle_listener, tl);
     g_toplevels = g_list_append(g_toplevels, tl);
@@ -834,7 +869,9 @@ static void build_splash(void) {
 }
 
 static void build_dock(void) {
-    GtkWidget *dock = layer_window(GTK_LAYER_SHELL_LAYER_TOP, FALSE, TRUE, FALSE, FALSE, -1);
+    /* Reserve the dock band (icon row + bottom margin) so maximized windows
+     * stop above it instead of hiding behind the floating pill. */
+    GtkWidget *dock = layer_window(GTK_LAYER_SHELL_LAYER_TOP, FALSE, TRUE, FALSE, FALSE, S(64));
     g_dock = dock;
     gtk_widget_set_name(dock, "dock");
     gtk_layer_set_margin(GTK_WINDOW(dock), GTK_LAYER_SHELL_EDGE_BOTTOM, S(12));
@@ -847,7 +884,8 @@ static void build_dock(void) {
     rebuild_pinbox();
 
     /* all-apps launcher */
-    GtkWidget *all = gtk_button_new_with_label("▦");
+    GtkWidget *all = gtk_button_new();
+    gtk_container_add(GTK_CONTAINER(all), icon_widget("view-app-grid-symbolic", S(26), "▦"));
     gtk_style_context_add_class(gtk_widget_get_style_context(all), "dbtn");
     gtk_widget_set_focus_on_click(all, FALSE);
     g_signal_connect(all, "clicked", G_CALLBACK(on_launcher_btn), NULL);

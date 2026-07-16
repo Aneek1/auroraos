@@ -26,9 +26,13 @@ rm -f /mnt/lfs/usr/bin/aurora-shell-select /mnt/lfs/etc/aurora-installed
 install -d /mnt/lfs/etc/xdg/labwc
 cat > /mnt/lfs/etc/xdg/labwc/autostart <<'EOF'
 # DaybreakOS session autostart (labwc)
+# push DISPLAY (set by labwc's Xwayland) into the D-Bus activation env for portals
+( sleep 2; dbus-update-activation-environment --all 2>/dev/null || dbus-update-activation-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null ) &
 /usr/lib/aurora/aura-llm-launch &
 /usr/bin/python3 /usr/lib/aurora/aurorad &
-/usr/bin/aurora-shell &
+# launch the shell with DISPLAY=:0 so X11 apps it starts (Steam) reach Xwayland;
+# labwc itself must NOT have DISPLAY set (breaks wlroots backend autodetect)
+env DISPLAY=:0 /usr/bin/aurora-shell &
 EOF
 
 echo "== re-squash (excluding the LLM model + build toolchain to slim the ISO) =="
