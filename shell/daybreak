@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""daybreak — DaybreakOS's package command.
+
+DaybreakOS is built from source (LFS); there is no apt/dnf/pacman and no
+.deb/.rpm database to manage. Apps install from the Daybreak Store catalog
+(AppImages / portable .debs unpacked under ~/Applications), served by the
+aurorad session daemon. This CLI is the terminal face of that same engine,
+so `daybreak install <app>` == clicking Get in the Store. Runs as your own
+user — no sudo needed.
+
+  daybreak list              show the catalog (* = installed)
+  daybreak search <term>     search the catalog
+  daybreak install <app>     install by id or name
+  daybreak remove <app>      uninstall
+  daybreak info              system summary
+"""
+import json, os, sys, urllib.request, urllib.error
+
+PORT = int(os.environ.get("AURORAD_PORT", "7212"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+def call(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(BASE + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            return json.loads(r.read())
+    except urllib.error.URLError:
+        sys.exit("daybreak: can't reach the app service (aurorad). "
+                 "Are you inside a DaybreakOS session?")
+    except json.JSONDecodeError:
+        sys.exit("daybreak: bad reply from the app service.")
+
+def catalog():
+    return call("GET", "/store/catalog").get("apps", [])
+
+def resolve(apps, want):
+    w = want.strip().lower()
+    for a in apps:                                   # exact id, then exact name
+        if a.get("id", "").lower() == w:
+            return a
+    for a in apps:
+        if a.get("name", "").strip().lower() == w:
+            return a
+    hits = [a for a in apps
+            if w in a.get("id", "").lower() or w in a.get("name", "").lower()]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        print(f"'{want}' matches more than one app:")
+        for a in hits:
+            print(f"  {a.get('id'):<16} {a.get('name')}")
+        sys.exit(1)
+    sys.exit(f"daybreak: no app called '{want}'. Try: daybreak list")
+
+def show(apps):
+    if not apps:
+        print("Catalog is empty.")
+        return
+    for a in apps:
+        mark = "*" if a.get("installed") else " "
+        print(f" {mark} {a.get('id', ''):<16} {a.get('name', ''):<20} "
+              f"{a.get('desc', a.get('description', ''))}")
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "help"
+    if cmd == "list":
+        show(catalog())
+    elif cmd == "search":
+        if len(argv) < 3:
+            sys.exit("usage: daybreak search <term>")
+        t = argv[2].lower()
+        show([a for a in catalog()
+              if t in a.get("id", "").lower() or t in a.get("name", "").lower()
+              or t in a.get("desc", a.get("description", "")).lower()])
+    elif cmd == "install":
+        if len(argv) < 3:
+            sys.exit("usage: daybreak install <app>")
+        app = resolve(catalog(), " ".join(argv[2:]))
+        if app.get("installed"):
+            print(f"{app['name']} is already installed.")
+            return
+        print(f"Installing {app['name']} …")
+        r = call("POST", "/store/install", {"id": app["id"]})
+        if r.get("ok"):
+            print(f"Installed {r.get('installed', app['name'])} — it's in Apps and the dock.")
+        else:
+            sys.exit(f"daybreak: {r.get('error', 'install failed')}")
+    elif cmd == "remove":
+        if len(argv) < 3:
+            sys.exit("usage: daybreak remove <app>")
+        app = resolve(catalog(), " ".join(argv[2:]))
+        r = call("POST", "/store/remove", {"id": app["id"]})
+        print(f"Removed {app['name']}." if r.get("ok")
+              else f"daybreak: {r.get('error', 'remove failed')}")
+    elif cmd == "info":
+        s = call("GET", "/status")
+        print(f"{s.get('os', 'DaybreakOS')} · host {s.get('hostname', '?')} · "
+              f"load {s.get('load', 0):.2f} · up {s.get('uptime', 0) // 60} min")
+    elif cmd in ("update", "upgrade"):
+        print("DaybreakOS is image-based — there are no package updates to fetch.\n"
+              "New OS versions ship as a new ISO; apps reinstall at their latest "
+              "release via: daybreak install <app>")
+    else:
+        print(__doc__.strip())
+
+if __name__ == "__main__":
+    main(sys.argv)
