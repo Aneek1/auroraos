@@ -67,6 +67,16 @@ static GtkWidget *g_auroramenu = NULL;   /* top-bar logo menu (About / power) */
 static struct zwlr_foreign_toplevel_manager_v1 *g_ftl_mgr = NULL;
 static struct wl_seat *g_ftl_seat = NULL;
 static GtkWidget *g_taskbar = NULL;      /* dock box: one button per running window */
+static GtkWidget *g_docksep = NULL;      /* pin/taskbar divider — only when windows exist */
+static void dock_sep_sync(void) {
+    if (!g_docksep || !g_taskbar) return;
+    gboolean any = FALSE;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(g_taskbar));
+    for (GList *l = kids; l; l = l->next)
+        if (gtk_widget_get_visible(GTK_WIDGET(l->data))) { any = TRUE; break; }
+    g_list_free(kids);
+    gtk_widget_set_visible(g_docksep, any);
+}
 typedef struct {
     struct zwlr_foreign_toplevel_handle_v1 *handle;
     char *title, *app_id;
@@ -658,16 +668,16 @@ static void update_task_button(Toplevel *tl) {
     /* Unnamed toplevels (no title, no app id) render as blank dead space in
      * the dock — keep the button parked until the window identifies itself. */
     gboolean named = (tl->title && *tl->title) || (tl->app_id && *tl->app_id);
-    if (!named) { if (tl->btn) gtk_widget_hide(tl->btn); return; }
+    if (!named) { if (tl->btn) gtk_widget_hide(tl->btn); dock_sep_sync(); return; }
     const char *t = (tl->title && *tl->title) ? tl->title : tl->app_id;
-    gtk_label_set_text(GTK_LABEL(tl->lbl), t);
+    gtk_widget_set_tooltip_text(tl->btn, t);
     if (!tl->ico_done && tl->app_id && *tl->app_id) {
         /* real app icon on the taskbar chip: theme icon named like the
          * app id, else the matching launcher entry's icon */
         GtkWidget *ico = NULL;
         if (gtk_icon_theme_has_icon(gtk_icon_theme_get_default(), tl->app_id)) {
             ico = gtk_image_new_from_icon_name(tl->app_id, GTK_ICON_SIZE_MENU);
-            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(20));
+            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(26));
         } else {
             char *want = g_ascii_strdown(tl->app_id, -1);
             for (GList *l = g_apps; l && !ico; l = l->next) {
@@ -676,17 +686,17 @@ static void update_task_button(Toplevel *tl) {
                 char *ex = g_ascii_strdown(a->exec ? a->exec : "", -1);
                 if (strstr(ex, want) || strstr(nm, want))
                     if (a->icon && *a->icon)
-                        ico = icon_widget(a->icon, S(20), NULL);
+                        ico = icon_widget(a->icon, S(26), NULL);
                 g_free(nm); g_free(ex);
             }
             g_free(want);
         }
         if (!ico) {
-            /* generic fallback so a chip is never text-only (shell-owned
+            /* generic fallback so a chip always has an icon (shell-owned
              * windows like "Set up Aura" have no matching app icon) */
             ico = gtk_image_new_from_icon_name("application-x-executable",
                                                GTK_ICON_SIZE_MENU);
-            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(20));
+            gtk_image_set_pixel_size(GTK_IMAGE(ico), S(26));
         }
         if (ico) {
             gtk_box_pack_start(GTK_BOX(tl->hbox), ico, FALSE, FALSE, 0);
@@ -700,6 +710,7 @@ static void update_task_button(Toplevel *tl) {
     if (tl->activated) gtk_style_context_add_class(sc, "active");
     else               gtk_style_context_remove_class(sc, "active");
     gtk_widget_show_all(tl->btn);
+    dock_sep_sync();
 }
 static void ftl_title(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *t) {
     (void)h; Toplevel *tl = d; g_free(tl->title); tl->title = g_strdup(t);
@@ -722,6 +733,7 @@ static GtkWidget *g_dock;
 static void ftl_closed(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
     Toplevel *tl = d;
     if (tl->btn) { gtk_widget_destroy(tl->btn); g_object_unref(tl->btn); }
+    dock_sep_sync();
     zwlr_foreign_toplevel_handle_v1_destroy(h);
     g_toplevels = g_list_remove(g_toplevels, tl);
     g_free(tl->title); g_free(tl->app_id); g_free(tl);
@@ -747,16 +759,11 @@ static void ftl_new(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
     tl->btn = gtk_button_new();
     gtk_style_context_add_class(gtk_widget_get_style_context(tl->btn), "taskbtn");
     gtk_widget_set_focus_on_click(tl->btn, FALSE);
-    tl->lbl = gtk_label_new("…");
-    gtk_label_set_ellipsize(GTK_LABEL(tl->lbl), PANGO_ELLIPSIZE_END);
-    /* width_chars floors the label's minimum request; without it the dock's
-     * shrink-to-fit (gtk_window_resize(g_dock,1,1)) starves the label to the
-     * ellipsis width and every chip collapses to a bare "…". */
-    gtk_label_set_width_chars(GTK_LABEL(tl->lbl), 9);
-    gtk_label_set_max_width_chars(GTK_LABEL(tl->lbl), 16);
-    gtk_label_set_xalign(GTK_LABEL(tl->lbl), 0.0);
-    tl->hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_pack_start(GTK_BOX(tl->hbox), tl->lbl, FALSE, FALSE, 0);
+    /* macOS-style chip: icon only, window title as tooltip (set once the
+     * toplevel names itself). Keeps the dock visually uniform. */
+    tl->lbl = NULL;
+    tl->hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_halign(tl->hbox, GTK_ALIGN_CENTER);
     gtk_container_add(GTK_CONTAINER(tl->btn), tl->hbox);
     g_signal_connect(tl->btn, "clicked", G_CALLBACK(on_task_clicked), tl);
     g_object_ref_sink(tl->btn);   /* parked until the toplevel gets a name */
@@ -850,11 +857,13 @@ static void build_dock(void) {
     GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
     gtk_style_context_add_class(gtk_widget_get_style_context(sep), "docksep");
     gtk_box_pack_start(GTK_BOX(hb), sep, FALSE, FALSE, 4);
+    g_docksep = sep;
     g_taskbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(hb), g_taskbar, FALSE, FALSE, 0);
 
     gtk_container_add(GTK_CONTAINER(dock), hb);
     gtk_widget_show_all(dock);
+    dock_sep_sync();          /* divider hidden until a window opens */
 }
 
 static void build_wallpaper(void) {
