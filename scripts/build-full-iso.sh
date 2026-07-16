@@ -42,7 +42,7 @@ echo "== re-squash (excluding the LLM model + build toolchain to slim the ISO) =
 mksquashfs "$LFS" "$ISO/live/rootfs.squashfs" -comp zstd -noappend \
   -e boot/efi -e sources -e proc -e sys -e dev -e run -e tmp -e aurora \
   -e opt/aura/models -e usr/libexec/gcc -e usr/bin/lto-dump -e opt/cmake \
-  -e usr/include -wildcards -e 'core.*'
+  -e usr/include -wildcards -e 'core.*' -e 'usr/lib/libLLVM*.a' -e 'usr/lib/libLLVM*.la'
 
 echo "== grub-mkimage + ESP + xorriso =="
 cat > "$STAGE/embed.cfg" <<'EOF'
