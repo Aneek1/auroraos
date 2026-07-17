@@ -2,6 +2,10 @@
 CONFIG_FB_EFI=y
 CONFIG_DRM_I915=y
 CONFIG_DRM_AMDGPU=y
+# NVIDIA nouveau: pairs with the nvidia firmware set (incl. GSP blobs for
+# Turing/Ampere+). Kconfig `select`s TTM + GEM/SHMEM helpers automatically.
+CONFIG_DRM_NOUVEAU=y
+CONFIG_DRM_NOUVEAU_BACKLIGHT=y
 CONFIG_DRM_QXL=y
 CONFIG_DRM_BOCHS=y
 # VirtualBox virtual GPUs: VBOXVIDEO drives VBoxVGA/VBoxSVGA, VMWGFX drives the
